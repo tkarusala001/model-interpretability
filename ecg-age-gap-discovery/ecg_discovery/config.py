@@ -630,14 +630,20 @@ class BackboneConfig:
     """
 
     in_channels: int = 12
-    stem_channels: int = 32
-    stage_channels: tuple[int, ...] = (32, 64, 64, 128)
+    stem_channels: int = 24
+    stage_channels: tuple[int, ...] = (24, 40, 56, 80)
     blocks_per_stage: int = 2
     kernel_size: int = 7
     stride_per_stage: tuple[int, ...] = (2, 2, 2, 2)
     dropout: float = 0.3
     use_sex_input: bool = True
     head_hidden: int = 64
+    #: Final-layer bias initialisation, in years. The network predicts age
+    #: directly rather than a standardised value, so starting its output near the
+    #: population mean saves the first epochs being spent travelling from zero to
+    #: the plausible age range. It is an initialisation only - training is free
+    #: to move it anywhere.
+    age_prior_mean: float = 60.0
 
     def __post_init__(self) -> None:
         _positive(self.in_channels, "in_channels")
@@ -663,6 +669,7 @@ class BackboneConfig:
         )
         _in_range(self.dropout, 0.0, 1.0, "dropout")
         _positive(self.head_hidden, "head_hidden")
+        _in_range(self.age_prior_mean, 0.0, 120.0, "age_prior_mean")
 
     @property
     def total_downsampling(self) -> int:

@@ -2,14 +2,20 @@
 #
 # Sizing rationale (expanded in ecg_discovery/models/ecg_age_regressor.py):
 # PTB-XL gives ~18.9k patients. A large network trained from scratch on that
-# overfits quickly, so the model is deliberately small (~0.3M parameters) and
-# regularised, and its receptive field is sized to span more than one full
-# cardiac cycle (~1 s at 100 Hz = 100 samples) so it can see rhythm as well as
-# beat morphology.
+# memorises rather than learns, and an overfitted model's age gap is mostly
+# memorisation noise - which would make every downstream analysis a study of
+# nothing. This configuration is 326,497 parameters (~17 per patient), and its
+# receptive field spans 637 samples = 6.4 s at 100 Hz, far more than the ~1 s
+# cardiac cycle, so features can express rhythm as well as beat morphology.
+#
+# Widths were chosen by measurement, not guesswork: the widest stage dominates
+# the parameter count, so narrowing the stages from (32,64,64,128) to
+# (24,40,56,80) halves the model (683k -> 326k) while leaving the receptive
+# field completely unchanged.
 
 in_channels: 12
-stem_channels: 32
-stage_channels: [32, 64, 64, 128]     # one residual stage per entry
+stem_channels: 24
+stage_channels: [24, 40, 56, 80]      # one residual stage per entry
 blocks_per_stage: 2
 kernel_size: 7
 stride_per_stage: [2, 2, 2, 2]        # 100 Hz input, 1000 samples -> ~63 after 4 stages

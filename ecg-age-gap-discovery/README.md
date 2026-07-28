@@ -68,10 +68,10 @@ is involved.
 | 1.5 | Synthetic ECG generator | done |
 | 2 | QRS detection | done |
 | 3 | Wave delineation, interval features | done |
-| 4 | From-scratch age regressor | pending |
-| 5 | Training loop, patient-level splits | pending |
-| 6 | Fiducial-segment attribution | pending |
-| 7 | Attribution analysis on PTB-XL | pending |
+| 4 | From-scratch age regressor | done |
+| 5 | Training loop, patient-level splits | done |
+| 6 | Fiducial-segment attribution | done |
+| 7 | Attribution analysis on PTB-XL | code done; awaiting download |
 | 8 | Residual decomposition | pending |
 | 9 | Discovery experiment | pending |
 | 10 | Visualization | pending |
