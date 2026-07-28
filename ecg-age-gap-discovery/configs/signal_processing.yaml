@@ -1,0 +1,86 @@
+# From-scratch QRS detection (Phase 2) and wave delineation (Phase 3).
+#
+# Defaults follow Pan & Tompkins (1985) where that algorithm specifies a value,
+# and standard electrophysiological ranges elsewhere. The interval features
+# derived from these settings are the "already known" quantities the Phase 8
+# validation framework measures discovery against, so their accuracy directly
+# affects the paper's headline number.
+
+detection_lead: II          # conventional rhythm lead: tall positive R in most people
+polarity: auto              # R deflects up in II, down in aVR/V1 - let the data decide
+
+# Passband isolating QRS energy. The QRS is the fastest normal ECG feature, so
+# 5-15 Hz suppresses P and T waves below it and muscle noise above it.
+qrs_band_low_hz: 5.0
+qrs_band_high_hz: 15.0
+filter_order: 2
+
+# Wider, morphology-preserving band used ONLY to pin down the R peak once a beat
+# has been located. The 5-15 Hz detection band distorts QRS shape and would
+# bias peak position.
+refine_band_low_hz: 0.5
+refine_band_high_hz: 40.0
+refine_window_ms: 100.0
+
+integration_window_ms: 150.0   # ~ widest normal QRS: merges Q, R and S into one energy bump
+refractory_ms: 200.0           # the heart cannot re-depolarise faster than this
+# Below this RR interval a candidate is slope-tested: a T wave can clear the
+# amplitude threshold but rises more slowly than a QRS. Pan-Tompkins use 0.5; a
+# sweep over synthetic cohorts (45-180 bpm, T amplitudes to 83% of R) showed 0.7
+# costs no sensitivity anywhere while removing false positives for hyperacute
+# T waves at 50% of R. Known limit: a T wave at ~83% of R amplitude AND similar
+# steepness still slips through (PPV ~0.97 at any setting). See docs/limitations.md.
+t_wave_discrimination_ms: 360.0
+t_wave_slope_fraction: 0.7
+
+threshold_adaptation: 0.125    # Pan-Tompkins running-estimate weight
+threshold_fraction: 0.25
+searchback_factor: 1.66        # re-scan with a halved threshold after this * mean RR
+rr_low_factor: 0.92
+rr_high_factor: 1.16
+rr_history: 8
+learning_seconds: 2.0          # initial threshold learning phase
+
+# Detections closer than this to either end of the recording are dropped: a
+# recording starts and stops mid-rhythm, so its edge complexes are usually cut
+# in half, and a truncated complex injects a spuriously short RR interval that
+# biases heart rate. 50 ms is about half a maximal normal QRS, and is also where
+# a sweep over the synthetic cohort puts BOTH sensitivity and PPV at 1.000 for
+# 100 Hz and 500 Hz. Lower keeps false positives; higher starts losing real beats.
+edge_guard_ms: 50.0
+
+match_tolerance_ms: 50.0       # detected-to-reference matching window when scoring
+
+# --------------------------------------------------------------------------- #
+# Wave delineation (Phase 3)
+# --------------------------------------------------------------------------- #
+# These heuristics locate the P and T waves relative to each detected R peak.
+# They are an APPROXIMATION, not clinical-grade delineation - see the module
+# docstring in wave_delineation.py and docs/limitations.md for what that costs.
+
+delineation_lead: II            # P waves are most visible in lead II
+qrs_boundary_source: vector_magnitude   # vector_magnitude | lead
+
+qrs_search_ms: 120.0            # furthest a QRS boundary may sit from the R peak
+qrs_envelope_smooth_ms: 16.0    # fills the derivative zeros between Q, R and S lobes
+qrs_boundary_threshold: 0.10    # fraction of peak slope defining "the complex has ended"
+quiet_run_ms: 12.0              # boundary requires this long below threshold, not one sample
+
+baseline_window_ms: 40.0        # isoelectric estimate taken from the PR segment
+
+p_search_min_ms: 40.0           # P wave sits 40-320 ms before QRS onset
+p_search_max_ms: 320.0
+p_boundary_threshold: 0.20      # fraction of P amplitude marking its edges
+p_min_amplitude_mv: 0.02        # below this, report no P wave rather than invent one
+
+t_search_min_ms: 40.0
+t_search_frac_rr: 0.65          # T search window ends this far through the cardiac cycle
+t_search_max_ms: 500.0
+t_boundary_threshold: 0.15
+t_min_amplitude_mv: 0.04
+t_offset_method: tangent        # tangent (Lepeschkin) | threshold
+
+# Per-recording aggregation across beats. Median resists the one mis-delineated
+# beat that a mean would let corrupt the whole recording's features.
+aggregation: median
+min_beats_for_features: 3

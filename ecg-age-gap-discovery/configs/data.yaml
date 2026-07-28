@@ -4,8 +4,16 @@
 # path. The synthetic path (ecg_discovery/data/synthetic_ecg.py) needs nothing.
 
 ptbxl_root: data/ptbxl                # directory containing ptbxl_database.csv + records100/records500
-sampling_rate_hz: 100                 # PTB-XL ships 100 Hz and 500 Hz; 100 Hz is enough for age regression and 5x cheaper
+sampling_rate_hz: 100                 # rate the MODEL consumes; 100 Hz is the standard PTB-XL benchmark rate
+interval_sampling_rate_hz: 500        # rate the CLASSICAL INTERVALS are measured at; see below
 window_seconds: 10.0                  # PTB-XL recordings are exactly 10 s
+
+# Why two rates: one sample at 100 Hz is 10 ms, coarser than the interval
+# differences the Phase 8 validation framework has to resolve. Measuring
+# intervals at 100 Hz would understate how much variance the *known* features
+# explain - which inflates the "unexplained" residual and biases the whole
+# analysis toward a false discovery claim. Intervals are always measured at
+# 500 Hz for that reason.
 n_leads: 12
 
 # Preprocessing. Baseline wander lives below ~0.5 Hz; muscle/EMG noise dominates

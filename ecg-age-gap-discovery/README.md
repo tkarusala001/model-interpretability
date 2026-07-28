@@ -65,9 +65,9 @@ is involved.
 | Phase | Component | Status |
 |---|---|---|
 | 1 | Scaffolding, config system | done |
-| 1.5 | Synthetic ECG generator | pending |
-| 2 | QRS detection | pending |
-| 3 | Wave delineation, interval features | pending |
+| 1.5 | Synthetic ECG generator | done |
+| 2 | QRS detection | done |
+| 3 | Wave delineation, interval features | done |
 | 4 | From-scratch age regressor | pending |
 | 5 | Training loop, patient-level splits | pending |
 | 6 | Fiducial-segment attribution | pending |

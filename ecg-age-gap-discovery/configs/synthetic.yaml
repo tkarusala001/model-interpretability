@@ -1,16 +1,28 @@
 # Synthetic ECG cohort (Phase 1.5). Used to build and unit-test the entire
 # pipeline against a KNOWN right answer before PTB-XL is involved at all.
 #
-# Two injected age effects, deliberately chosen to sit on opposite sides of the
-# Phase 8 validation framework:
-#   - qrs_widening_ms_per_decade  -> mediated ENTIRELY by a known interval
-#                                    (QRS duration). Decomposition must find it.
-#   - t_wave_skew_per_decade      -> a T-wave *morphology* change that no timing
-#                                    interval captures. Decomposition must leave
-#                                    it in the unexplained residual.
+# THE GENERATIVE STORY
+# Each synthetic patient has a chronological age (the regression label) plus two
+# INDEPENDENT latent offsets that shift the apparent age of their heart. Beat
+# morphology is driven by the offset ages, not by chronological age, so a model
+# that reads the waveform correctly disagrees with the label by a known amount.
+# That disagreement is the synthetic ECG age gap. The two offsets sit on
+# opposite sides of the Phase 8 validation framework:
+#
+#   known_age_offset_sd_years        -> QRS widening + heart-rate change.
+#                                       Fully mediated by measurable intervals.
+#                                       Decomposition MUST explain this part.
+#   unexplained_age_offset_sd_years  -> T-wave skew: the T wave becomes
+#                                       asymmetric while keeping identical
+#                                       onset, offset, duration and peak
+#                                       amplitude. No timing interval can see
+#                                       it. Decomposition MUST leave this part
+#                                       unexplained.
+#
+# Setting either SD to 0 produces the two extreme cases the Phase 8 tests need.
 
 n_recordings: 2000
-sampling_rate_hz: 100
+sampling_rate_hz: 500       # generate at 500 Hz; interval measurement needs the resolution
 duration_seconds: 10.0
 n_leads: 12
 seed: 7
@@ -19,27 +31,34 @@ seed: 7
 age_min_years: 20.0
 age_max_years: 89.0
 p_female: 0.5
+repeat_patient_frac: 0.1    # fraction of patients contributing a 2nd recording, as PTB-XL does
 
-# Baseline (age-40) beat morphology, in milliseconds unless noted.
+# Latent ECG-age offsets: the cause of the synthetic age gap
+known_age_offset_sd_years: 6.0
+unexplained_age_offset_sd_years: 6.0
+
+# Baseline (reference-age) beat morphology, milliseconds unless noted
 heart_rate_bpm_mean: 70.0
 heart_rate_bpm_sd: 10.0
-hr_sinus_arrhythmia_frac: 0.03        # beat-to-beat RR jitter as a fraction of RR
+hr_sinus_arrhythmia_frac: 0.03
 
 p_duration_ms: 100.0
 p_amplitude_mv: 0.15
-pr_interval_ms: 160.0                 # P onset -> QRS onset
+pr_interval_ms: 160.0       # P onset -> QRS onset
+pr_interval_sd_ms: 20.0     # between-person spread; without it PR is constant and unvalidatable
 qrs_duration_ms: 90.0
 r_amplitude_mv: 1.2
 q_amplitude_mv: -0.1
 s_amplitude_mv: -0.25
-st_segment_ms: 100.0
-t_duration_ms: 160.0
+st_segment_ms: 80.0
+t_duration_ms: 160.0        # at the reference heart rate; scales with sqrt(RR), Bazett-style
 t_amplitude_mv: 0.3
+reference_age_years: 40.0
 
-# Injected age effects (per decade above age 40)
-qrs_widening_ms_per_decade: 4.0       # KNOWN-interval-mediated
-t_wave_skew_per_decade: 0.06          # NOT captured by any timing interval
-hr_change_bpm_per_decade: -1.5        # KNOWN-interval-mediated (heart rate)
+# Injected age effects, per decade away from reference_age_years
+qrs_widening_ms_per_decade: 5.0     # KNOWN-interval-mediated
+hr_change_bpm_per_decade: -2.0      # KNOWN-interval-mediated
+t_wave_skew_per_decade: 0.10        # NOT captured by any timing interval
 
 # Measurement realism
 noise_mv_sd: 0.02
@@ -47,4 +66,9 @@ baseline_wander_mv: 0.05
 baseline_wander_hz: 0.3
 powerline_mv: 0.005
 powerline_hz: 50.0
-label_noise_years: 2.0                # jitter on the recorded age relative to the age that drives morphology
+lead_amplitude_jitter: 0.10
+
+# Synthetic stand-in for PTB-XL diagnostic superclasses (Phase 9 machinery check)
+diagnostic_link_source: unexplained   # unexplained | known | none
+diagnostic_link_strength: 0.8         # log-odds per SD of the source offset
+diagnostic_abnormal_base_rate: 0.45
