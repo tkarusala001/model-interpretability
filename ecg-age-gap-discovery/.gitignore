@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+
+# Data and outputs are never committed: PTB-XL is redistributed from PhysioNet,
+# and run directories are regenerable from config + seed.
+data/
+runs/
+outputs/
+.DS_Store
+.ipynb_checkpoints/

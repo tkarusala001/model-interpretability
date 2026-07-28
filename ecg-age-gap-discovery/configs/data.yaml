@@ -1,0 +1,41 @@
+# Data configuration: PTB-XL loading + preprocessing + splitting.
+#
+# Requires PTB-XL downloaded per `scripts/download_data.sh` for the real-data
+# path. The synthetic path (ecg_discovery/data/synthetic_ecg.py) needs nothing.
+
+ptbxl_root: data/ptbxl                # directory containing ptbxl_database.csv + records100/records500
+sampling_rate_hz: 100                 # PTB-XL ships 100 Hz and 500 Hz; 100 Hz is enough for age regression and 5x cheaper
+window_seconds: 10.0                  # PTB-XL recordings are exactly 10 s
+n_leads: 12
+
+# Preprocessing. Baseline wander lives below ~0.5 Hz; muscle/EMG noise dominates
+# above ~40 Hz. A 0.5-40 Hz bandpass is the standard clinical "monitor" band and
+# preserves P/QRS/T morphology, which the fiducial attribution work depends on.
+bandpass_low_hz: 0.5
+bandpass_high_hz: 40.0
+bandpass_order: 3
+# PTB-XL was recorded in Germany, so mains interference sits at 50 Hz. At
+# sampling_rate_hz: 100 the Nyquist frequency is exactly 50 Hz, so a 50 Hz notch
+# is not representable - and is also unnecessary, because PTB-XL's 100 Hz
+# recordings were anti-alias-filtered during downsampling and the 0.5-40 Hz
+# bandpass above already excludes the mains band. Set this to 50.0 only when
+# using sampling_rate_hz: 500.
+powerline_notch_hz: null
+notch_quality: 30.0
+
+# Per-lead z-scoring using statistics computed from the TRAINING SPLIT ONLY
+# (never the full dataset) so no test-set information leaks into the input scale.
+normalization: per_lead_train_stats    # one of: per_lead_train_stats | per_recording | none
+
+# PTB-XL anonymisation encodes every patient older than 89 as age 300. Those
+# records are dropped rather than clipped: a fabricated age would corrupt both
+# the regression target and every age-gap residual downstream.
+min_age_years: 18.0
+max_age_years: 89.0
+drop_age_sentinel_300: true
+
+# Splits are PATIENT-level, not recording-level (PTB-XL has repeat patients).
+split_seed: 1337
+train_frac: 0.7
+val_frac: 0.1
+test_frac: 0.2

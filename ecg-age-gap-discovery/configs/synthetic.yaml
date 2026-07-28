@@ -1,0 +1,50 @@
+# Synthetic ECG cohort (Phase 1.5). Used to build and unit-test the entire
+# pipeline against a KNOWN right answer before PTB-XL is involved at all.
+#
+# Two injected age effects, deliberately chosen to sit on opposite sides of the
+# Phase 8 validation framework:
+#   - qrs_widening_ms_per_decade  -> mediated ENTIRELY by a known interval
+#                                    (QRS duration). Decomposition must find it.
+#   - t_wave_skew_per_decade      -> a T-wave *morphology* change that no timing
+#                                    interval captures. Decomposition must leave
+#                                    it in the unexplained residual.
+
+n_recordings: 2000
+sampling_rate_hz: 100
+duration_seconds: 10.0
+n_leads: 12
+seed: 7
+
+# Synthetic "patient" demographics
+age_min_years: 20.0
+age_max_years: 89.0
+p_female: 0.5
+
+# Baseline (age-40) beat morphology, in milliseconds unless noted.
+heart_rate_bpm_mean: 70.0
+heart_rate_bpm_sd: 10.0
+hr_sinus_arrhythmia_frac: 0.03        # beat-to-beat RR jitter as a fraction of RR
+
+p_duration_ms: 100.0
+p_amplitude_mv: 0.15
+pr_interval_ms: 160.0                 # P onset -> QRS onset
+qrs_duration_ms: 90.0
+r_amplitude_mv: 1.2
+q_amplitude_mv: -0.1
+s_amplitude_mv: -0.25
+st_segment_ms: 100.0
+t_duration_ms: 160.0
+t_amplitude_mv: 0.3
+
+# Injected age effects (per decade above age 40)
+qrs_widening_ms_per_decade: 4.0       # KNOWN-interval-mediated
+t_wave_skew_per_decade: 0.06          # NOT captured by any timing interval
+hr_change_bpm_per_decade: -1.5        # KNOWN-interval-mediated (heart rate)
+
+# Measurement realism
+noise_mv_sd: 0.02
+baseline_wander_mv: 0.05
+baseline_wander_hz: 0.3
+powerline_mv: 0.005
+powerline_hz: 50.0
+label_noise_years: 2.0                # jitter on the recorded age relative to the age that drives morphology

@@ -1,0 +1,18 @@
+# From-scratch 1D CNN age regressor. Randomly initialised; no pretrained weights.
+#
+# Sizing rationale (expanded in ecg_discovery/models/ecg_age_regressor.py):
+# PTB-XL gives ~18.9k patients. A large network trained from scratch on that
+# overfits quickly, so the model is deliberately small (~0.3M parameters) and
+# regularised, and its receptive field is sized to span more than one full
+# cardiac cycle (~1 s at 100 Hz = 100 samples) so it can see rhythm as well as
+# beat morphology.
+
+in_channels: 12
+stem_channels: 32
+stage_channels: [32, 64, 64, 128]     # one residual stage per entry
+blocks_per_stage: 2
+kernel_size: 7
+stride_per_stage: [2, 2, 2, 2]        # 100 Hz input, 1000 samples -> ~63 after 4 stages
+dropout: 0.3
+use_sex_input: true                   # sex is a strong, cheap age-prediction covariate; ablatable
+head_hidden: 64

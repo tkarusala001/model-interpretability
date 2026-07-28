@@ -1,0 +1,45 @@
+# Phase 8 residual decomposition + Phase 9 discovery experiment.
+#
+# The framework asks: how much of the model's age-gap residual is a repackaging
+# of ECG intervals cardiology already measures, and how much is unexplained and
+# therefore a *candidate* (not a confirmation) of something new?
+
+# The "already known" feature set. Any signal explainable from these is
+# rediscovery, not discovery. Adding features here can only ever shrink the
+# unexplained residual - see docs/limitations.md.
+known_features:
+  - heart_rate_bpm
+  - qrs_duration_ms
+  - pr_interval_ms
+  - qt_interval_ms
+  - qtc_bazett_ms
+
+# Both models are always fitted and both are always reported, so there is no
+# opportunity to cherry-pick the more favourable R^2.
+explainer_models:
+  - linear
+  - gradient_boosting
+
+gradient_boosting:
+  n_estimators: 300
+  max_depth: 3
+  learning_rate: 0.05
+  subsample: 0.9
+
+# Covariates regressed out of the residual before decomposition. Age and sex are
+# included because an age-gap residual is mechanically correlated with age
+# (regression-to-the-mean); leaving that in would inflate "explained" variance
+# with an artefact of the regression rather than ECG physiology.
+adjust_for_covariates: [age, sex]
+
+cv_folds: 5
+cv_repeats: 3
+bootstrap_iterations: 1000
+confidence_level: 0.95
+seed: 0
+
+# Phase 9: does the unexplained residual predict diagnosis beyond known intervals?
+diagnostic_superclasses: [NORM, MI, STTC, CD, HYP]
+classifier: logistic_regression
+classifier_max_iter: 2000
+standardize_features: true

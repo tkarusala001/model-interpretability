@@ -1,0 +1,25 @@
+# Training configuration for the from-scratch ECG age regressor.
+
+experiment_name: ecg_age_regressor
+seed: 0
+device: auto                          # auto | cpu | cuda | mps
+
+epochs: 60
+batch_size: 128
+num_workers: 0                        # 0 keeps DataLoader determinism trivial; raise for speed on real data
+learning_rate: 0.001
+weight_decay: 0.0001
+optimizer: adamw                      # adamw | adam | sgd
+lr_scheduler: cosine                  # cosine | none
+warmup_epochs: 2
+grad_clip_norm: 5.0
+
+loss: huber                           # huber | mse | mae ; huber resists the age-label outliers PTB-XL contains
+huber_delta: 5.0                      # years
+
+early_stopping_patience: 12           # epochs without val-MAE improvement
+checkpoint_metric: val_mae
+log_every_n_steps: 20
+scatter_every_n_epochs: 10            # dump predicted-vs-true age on val split this often
+
+runs_dir: runs

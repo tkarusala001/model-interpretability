@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ecg-age-gap-discovery"
+version = "0.1.0"
+description = "Representation-level interpretability for ECG age-gap models: fiducial-segment attribution and a rediscovery-vs-discovery validation framework."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+authors = [{ name = "ECG Age-Gap Discovery authors" }]
+
+# NOTE: no pretrained-model sources (torchvision weights, HuggingFace hub, ECG
+# foundation models) and no interpretability library (Captum) appear here, by
+# design. See README.md "Provenance constraints".
+dependencies = [
+    "torch>=2.2",
+    "numpy>=1.26",
+    "pandas>=2.0",
+    "scipy>=1.11",
+    "wfdb>=4.1",
+    "scikit-learn>=1.4",
+    "pyyaml>=6.0",
+    "tqdm>=4.66",
+    "matplotlib>=3.8",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[tool.setuptools.packages.find]
+include = ["ecg_discovery*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = ["ignore::DeprecationWarning"]
