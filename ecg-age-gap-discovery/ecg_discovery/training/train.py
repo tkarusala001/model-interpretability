@@ -48,6 +48,7 @@ from ecg_discovery.data.dataset import ECGArrayDataset
 from ecg_discovery.data.preprocessing import (
     LeadNormalizer,
     SplitIndices,
+    assert_no_patient_leakage,
     patient_level_split,
 )
 from ecg_discovery.models.ecg_age_regressor import ECGAgeRegressor
@@ -270,6 +271,7 @@ def train_age_regressor(
     training_config: TrainingConfig | None = None,
     run: RunContext | None = None,
     progress: bool = False,
+    splits: SplitIndices | None = None,
 ) -> TrainingResult:
     """Train the age regressor and return the model with per-split age gaps.
 
@@ -302,7 +304,13 @@ def train_age_regressor(
     device = resolve_device(training_config.device)
 
     # -- Split by patient, never by recording --------------------------------
-    splits = patient_level_split(patient_ids, data_config)
+    # A caller may supply a split instead - PTB-XL ships its own stratified
+    # folds, and using them keeps results comparable with published work. Any
+    # supplied split is still verified for patient leakage rather than trusted.
+    if splits is None:
+        splits = patient_level_split(patient_ids, data_config)
+    else:
+        assert_no_patient_leakage(patient_ids, splits)
 
     # -- Normalise using training statistics only ----------------------------
     normalizer = LeadNormalizer.fit(

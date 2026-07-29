@@ -527,6 +527,13 @@ class SignalProcessingConfig:
     p_search_max_ms: float = 320.0
     p_boundary_threshold: float = 0.20
     p_min_amplitude_mv: float = 0.02
+    #: Physiological ceiling on P-wave width. Normal is 80-120 ms; even marked
+    #: atrial abnormality stays under ~160 ms. Without this cap, boundary search
+    #: on a noisy real recording can run to the edge of the search window and
+    #: report a 250 ms "P wave", which then corrupts the PR interval feeding the
+    #: validation framework. Measured on PTB-XL, uncapped search produced
+    #: impossible P durations in ~20% of recordings.
+    p_max_duration_ms: float = 160.0
 
     t_search_min_ms: float = 40.0
     t_search_frac_rr: float = 0.65
@@ -608,6 +615,12 @@ class SignalProcessingConfig:
         )
         for name in ("p_min_amplitude_mv", "t_min_amplitude_mv"):
             _require(getattr(self, name) >= 0, f"{name} must be non-negative")
+        _positive(self.p_max_duration_ms, "p_max_duration_ms")
+        _require(
+            self.p_max_duration_ms < self.p_search_max_ms,
+            "p_max_duration_ms must be shorter than the P search window "
+            f"({self.p_max_duration_ms} vs {self.p_search_max_ms})",
+        )
 
         _one_of(self.aggregation, ("median", "mean"), "aggregation")
         _require(
@@ -771,11 +784,11 @@ class ValidationFrameworkConfig:
     """
 
     known_features: tuple[str, ...] = (
-        "heart_rate_bpm",
-        "qrs_duration_ms",
-        "pr_interval_ms",
-        "qt_interval_ms",
-        "qtc_bazett_ms",
+        "heart_rate_bpm", "rr_sd_ms", "qrs_duration_ms", "pr_interval_ms",
+        "p_duration_ms", "qt_interval_ms", "qtc_bazett_ms",
+        "r_amplitude_mv", "t_amplitude_mv", "p_amplitude_mv",
+        "st_deviation_mv", "qrs_axis_deg", "t_axis_deg",
+        "sokolow_lyon_mv", "r_progression_lead",
     )
     explainer_models: tuple[str, ...] = ("linear", "gradient_boosting")
     gradient_boosting: GradientBoostingConfig = field(default_factory=GradientBoostingConfig)

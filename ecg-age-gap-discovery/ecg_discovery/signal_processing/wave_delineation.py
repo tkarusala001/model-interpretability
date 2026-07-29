@@ -279,25 +279,58 @@ def _wave_extent(
     lower: int,
     upper: int,
     threshold_fraction: float,
+    quiet_samples: int = 1,
+    max_half_width: int | None = None,
 ) -> tuple[int, int]:
-    """Edges of a wave, where its deflection falls to a fraction of its peak.
+    """Edges of a wave, where its deflection settles back towards baseline.
 
-    Used for the P wave and for T-wave onset. Both are smooth single humps, so a
-    simple amplitude criterion relative to the wave's own height is adequate and
-    is insensitive to the wave's absolute size.
+    Used for the P wave and as the fallback for T-wave boundaries. The edge is
+    the point past which the deflection stays within ``threshold_fraction`` of
+    the wave's own peak height for ``quiet_samples`` consecutive samples.
+
+    The sustained requirement is not cosmetic. A P wave is only about 0.1 mV
+    tall, so a threshold at 20% of its height is roughly 0.02 mV - comparable to
+    the baseline noise of a real recording. Accepting the *first* sample below
+    that threshold worked on clean synthetic data and failed badly on PTB-XL,
+    where the walk simply never terminated: 22% of P-wave onsets ran all the way
+    to the edge of the search window, producing PR intervals pinned at the
+    window ceiling and P waves over 200 ms wide, which is physiologically
+    impossible.
+
+    ``max_half_width`` additionally caps how far the search may travel from the
+    peak, so a wave can never be reported wider than physiology allows even if
+    the signal never settles.
     """
     amplitude = signal[peak] - baseline
     if amplitude == 0:
         return peak, peak
     cutoff = abs(amplitude) * threshold_fraction
 
-    onset = peak
-    while onset > lower and abs(signal[onset] - baseline) > cutoff:
-        onset -= 1
-    offset = peak
-    while offset < upper and abs(signal[offset] - baseline) > cutoff:
-        offset += 1
-    return onset, offset
+    if max_half_width is not None:
+        lower = max(lower, peak - max_half_width)
+        upper = min(upper, peak + max_half_width)
+
+    quiet_samples = max(int(quiet_samples), 1)
+    near_baseline = np.abs(signal - baseline) <= cutoff
+
+    def settle(direction: int, limit: int) -> int:
+        run = 0
+        index = peak
+        while (index - direction) >= lower and (index - direction) <= upper and index != limit:
+            index += direction
+            if index < 0 or index >= signal.size:
+                break
+            if near_baseline[index]:
+                run += 1
+                if run >= quiet_samples:
+                    # The wave ended at the first sample of the quiet run, which
+                    # is the one nearest the peak.
+                    return index - direction * (quiet_samples - 1)
+            else:
+                run = 0
+        return limit
+
+    return settle(-1, lower), settle(+1, upper)
 
 
 def _tangent_boundary(
@@ -479,7 +512,8 @@ def delineate_beats(
         p_wave = _find_p_wave(
             wave_signal, qrs_onset, baseline, p_search_min, p_search_max,
             previous_offset=(results[-1].t_wave.offset if results and results[-1].t_wave else 0),
-            config=config,
+            config=config, quiet_samples=quiet_samples,
+            max_half_width=max(to_samples(config.p_max_duration_ms) // 2, 1),
         )
 
         # -- T wave -----------------------------------------------------------
@@ -516,6 +550,8 @@ def _find_p_wave(
     search_max: int,
     previous_offset: int,
     config: SignalProcessingConfig,
+    quiet_samples: int = 1,
+    max_half_width: int | None = None,
 ) -> WaveBoundaries | None:
     """Locate the P wave in the window before QRS onset.
 
@@ -535,7 +571,8 @@ def _find_p_wave(
         return None
 
     onset, offset = _wave_extent(
-        signal, peak, baseline, lower, upper, config.p_boundary_threshold
+        signal, peak, baseline, lower, upper, config.p_boundary_threshold,
+        quiet_samples=quiet_samples, max_half_width=max_half_width,
     )
     if offset <= onset:
         return None

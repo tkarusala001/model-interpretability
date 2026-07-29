@@ -305,3 +305,97 @@ def test_interval_features_table_rejects_wrong_shapes():
         interval_features_table(cohort[0].signal, 500.0, SP)
     with pytest.raises(ValueError, match="record_ids"):
         interval_features_table(cohort.signals, 500.0, SP, record_ids=["only_one"])
+
+
+# --------------------------------------------------------------------------- #
+# Amplitude, axis and morphology features
+# --------------------------------------------------------------------------- #
+def test_amplitude_features_are_measured_on_synthetic_beats():
+    recording = generate_recording(AT_500, 0, 0)
+    features = compute_interval_features(recording.signal, 500.0, SP, recording.lead_names)
+    # The generator builds lead II with a 1.2 mV R wave and a 0.3 mV T wave.
+    assert 0.5 < features.r_amplitude_mv < 2.5
+    assert 0.05 < features.t_amplitude_mv < 0.8
+    assert 0.02 < features.p_amplitude_mv < 0.5
+    assert np.isfinite(features.sokolow_lyon_mv)
+
+
+def test_amplitude_features_scale_with_the_signal():
+    """Doubling the waveform must double the measured amplitudes."""
+    recording = generate_recording(AT_500, 0, 0)
+    base = compute_interval_features(recording.signal, 500.0, SP, recording.lead_names)
+    doubled = compute_interval_features(
+        recording.signal * 2.0, 500.0, SP, recording.lead_names
+    )
+    assert doubled.r_amplitude_mv == pytest.approx(2 * base.r_amplitude_mv, rel=0.15)
+    assert doubled.sokolow_lyon_mv == pytest.approx(2 * base.sokolow_lyon_mv, rel=0.15)
+    # Axis is a direction, so scaling the whole signal must not move it.
+    assert doubled.qrs_axis_deg == pytest.approx(base.qrs_axis_deg, abs=2.0)
+
+
+def test_qrs_axis_responds_to_lead_geometry():
+    """Axis must be computed from leads I and aVF, not invented.
+
+    Flipping lead aVF reflects the frontal-plane vector about the horizontal
+    axis, so the computed axis must change sign.
+    """
+    recording = generate_recording(AT_500, 0, 0)
+    flipped = recording.signal.copy()
+    flipped[list(recording.lead_names).index("aVF")] *= -1
+
+    original = compute_interval_features(recording.signal, 500.0, SP, recording.lead_names)
+    reflected = compute_interval_features(flipped, 500.0, SP, recording.lead_names)
+    assert np.sign(reflected.qrs_axis_deg) != np.sign(original.qrs_axis_deg)
+    assert abs(reflected.qrs_axis_deg) == pytest.approx(
+        abs(original.qrs_axis_deg), abs=5.0
+    )
+
+
+def test_st_deviation_tracks_an_injected_shift():
+    """A deliberate ST-segment offset must show up in the measurement."""
+    from ecg_discovery.config import SignalProcessingConfig
+    from ecg_discovery.signal_processing.qrs_detection import detect_r_peaks
+    from ecg_discovery.signal_processing.wave_delineation import delineate_beats
+
+    recording = generate_recording(
+        dataclasses.replace(AT_500, noise_mv_sd=0.0, baseline_wander_mv=0.0), 0, 0
+    )
+    detection = detect_r_peaks(recording.signal, 500.0, SP, recording.lead_names)
+    beats = delineate_beats(
+        recording.signal, 500.0, detection.r_peaks, SP, recording.lead_names
+    )
+    baseline_features = compute_interval_features(
+        recording.signal, 500.0, SP, recording.lead_names, beats
+    )
+
+    elevated = recording.signal.copy()
+    for beat in beats:
+        start = beat.qrs.offset
+        stop = min(beat.qrs.offset + int(0.10 * 500), elevated.shape[1])
+        elevated[:, start:stop] += 0.25          # 0.25 mV ST elevation
+    raised = compute_interval_features(
+        elevated, 500.0, SP, recording.lead_names, beats
+    )
+    assert raised.st_deviation_mv > baseline_features.st_deviation_mv + 0.1
+
+
+def test_r_progression_is_a_precordial_lead_number():
+    recording = generate_recording(AT_500, 0, 0)
+    features = compute_interval_features(recording.signal, 500.0, SP, recording.lead_names)
+    if np.isfinite(features.r_progression_lead):
+        assert 1 <= features.r_progression_lead <= 6
+
+
+def test_amplitude_features_are_nan_without_beats():
+    features = compute_interval_features(np.zeros((12, 5000)), 500.0, SP)
+    for name in ("r_amplitude_mv", "qrs_axis_deg", "sokolow_lyon_mv"):
+        assert math.isnan(getattr(features, name))
+
+
+def test_single_lead_input_gives_nan_for_multi_lead_features():
+    """Axis and Sokolow-Lyon need specific leads; absent, they must not be faked."""
+    recording = generate_recording(AT_500, 0, 0)
+    features = compute_interval_features(recording.lead("II"), 500.0, SP)
+    assert math.isnan(features.qrs_axis_deg)
+    assert math.isnan(features.sokolow_lyon_mv)
+    assert np.isfinite(features.heart_rate_bpm)      # timing still works

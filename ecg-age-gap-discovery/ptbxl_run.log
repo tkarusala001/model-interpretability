@@ -1,0 +1,81 @@
+PTB-XL at data/ptbxl
+  raw:      21,799 recordings, 18,869 patients
+            293 with the age-300 sentinel (>89 years, dropped)
+            age range 2-89
+  filtered: 21,373 recordings, 18,495 patients
+            age 18-89 (mean 59.8), 48% female
+            repeat patients: 2,878 extra recordings
+  diagnostic superclasses: {'NORM': 9375, 'MI': 5346, 'STTC': 5092, 'CD': 4732, 'HYP': 2588}
+            403 recordings carry no diagnostic superclass
+  official folds: train 17,090, val 2,132, test 2,151
+  loaded 2000/21373 recordings
+  loaded 4000/21373 recordings
+  loaded 6000/21373 recordings
+  loaded 8000/21373 recordings
+  loaded 10000/21373 recordings
+  loaded 12000/21373 recordings
+  loaded 14000/21373 recordings
+  loaded 16000/21373 recordings
+  loaded 18000/21373 recordings
+  loaded 20000/21373 recordings
+run directory: runs/discovery_experiment/20260729T034003Z
+
+epoch   0  train  10.010  val_mae  14.38  lr 5.00e-04
+epoch   1  train   7.688  val_mae   9.98  lr 1.00e-03
+epoch   2  train   6.961  val_mae   9.54  lr 1.00e-03
+epoch   3  train   6.647  val_mae  11.04  lr 9.98e-04
+epoch   4  train   6.382  val_mae   9.44  lr 9.93e-04
+epoch   5  train   6.214  val_mae   9.43  lr 9.85e-04
+epoch   6  train   6.081  val_mae  11.48  lr 9.73e-04
+epoch   7  train   5.874  val_mae   8.49  lr 9.58e-04
+epoch   8  train   5.789  val_mae   8.78  lr 9.40e-04
+epoch   9  train   5.695  val_mae   8.19  lr 9.19e-04
+epoch  10  train   5.598  val_mae   9.30  lr 8.95e-04
+epoch  11  train   5.490  val_mae   8.31  lr 8.68e-04
+epoch  12  train   5.445  val_mae   8.19  lr 8.39e-04
+epoch  13  train   5.342  val_mae   8.02  lr 8.07e-04
+epoch  14  train   5.251  val_mae   8.22  lr 7.73e-04
+epoch  15  train   5.193  val_mae   8.56  lr 7.38e-04
+epoch  16  train   5.115  val_mae   8.58  lr 7.01e-04
+epoch  17  train   5.055  val_mae   8.63  lr 6.62e-04
+epoch  18  train   5.004  val_mae   8.29  lr 6.23e-04
+epoch  19  train   4.925  val_mae   8.11  lr 5.82e-04
+epoch  20  train   4.912  val_mae   8.31  lr 5.41e-04
+epoch  21  train   4.820  val_mae   8.80  lr 5.00e-04
+epoch  22  train   4.806  val_mae   8.22  lr 4.59e-04
+epoch  23  train   4.735  val_mae   8.09  lr 4.18e-04
+epoch  24  train   4.673  val_mae   8.10  lr 3.77e-04
+epoch  25  train   4.629  val_mae   8.83  lr 3.38e-04
+
+test MAE 7.53 years | R^2 0.637
+
+measuring intervals on 4260 test recordings at 500 Hz ...
+
+Age-gap residual decomposition over 4252 recordings (SD 9.81 years; 8 dropped for unmeasurable intervals).
+Known features: heart_rate_bpm, qrs_duration_ms, pr_interval_ms, qt_interval_ms, qtc_bazett_ms
+Adjusted for: age, sex
+
+explainer             demographics   + intervals  attributable   unexplained
+linear                      27.1%         30.8%          3.7%         69.2%
+gradient_boosting           29.3%         33.2%          3.9%         66.8%
+
+Headline: known ECG intervals explain 3.9% of the age-gap residual beyond demographics; 66.8% is unexplained (gradient_boosting, out-of-fold).
+The unexplained share is a CANDIDATE for new signal, not evidence of it. Every weakness in this pipeline - measurement noise, a small known-feature set, an under-powered explainer - inflates it.
+
+========================================================================
+Does the unexplained age-gap residual predict diagnosis beyond known intervals?  (4252 recordings, out-of-fold AUC, Bonferroni x5 correction across 5 superclasses)
+
+superclass       n+   baseline  augmented    delta            95% CI
+NORM           1893      0.821      0.828   +0.008  [+0.001, +0.015]  *
+MI             1015      0.691      0.706   +0.015  [+0.004, +0.023]  *
+STTC           1011      0.718      0.722   +0.004  [-0.002, +0.009]
+CD              910      0.776      0.779   +0.003  [-0.002, +0.010]
+HYP             509      0.665      0.663   -0.001  [-0.005, -0.000]
+
+RESULT: the unexplained residual improves prediction of NORM, MI beyond known intervals (largest gain +0.015 AUC for MI).
+
+This is a CANDIDATE signal for follow-up clinical validation, not a validated marker. It shows the residual carries information correlated with cardiologist labels in this dataset. It does not establish causation, clinical utility, or that the effect replicates in another cohort.
+NOTE: the improvement is statistically distinguishable from zero but small (+0.015 AUC, below the 0.020 threshold set in advance for a clinically meaningful effect). Statistical detectability is not clinical relevance.
+========================================================================
+
+artifacts written to runs/discovery_experiment/20260729T034003Z/artifacts

@@ -7,7 +7,7 @@ Python 3.12.6 on macOS (Darwin 24.0.0); `pyproject.toml` requires ≥3.11.
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-pytest                      # ~3.5 minutes, 333 tests
+pytest                      # ~3.5 minutes, 350 tests
 ```
 
 Pinned lower bounds are in `pyproject.toml`. Every run directory records the
@@ -92,13 +92,57 @@ PTB-XL is **CC BY 4.0** and fully open — no credentialing, data use agreement,
 CITI training or account required (verified 2026-07-28). Attribution is required;
 see `scripts/download_data.sh` for the citation.
 
-`summarise_ptbxl` should report ~21,799 raw recordings from ~18,869 patients,
-with a few hundred carrying the age-300 sentinel. **Record what it actually
-prints here once run** — that output is the checkable statement that the
-download is complete and behaves as documented.
+### Verified download output (2026-07-29)
 
-**As of this writing the real-data path has not been executed.** Everything
-above is synthetic.
+```
+PTB-XL at data/ptbxl
+  raw:      21,799 recordings, 18,869 patients
+            293 with the age-300 sentinel (>89 years, dropped)
+            age range 2-89
+  filtered: 21,373 recordings, 18,495 patients
+            age 18-89 (mean 59.8), 48% female
+            repeat patients: 2,878 extra recordings
+  diagnostic superclasses: {'NORM': 9375, 'MI': 5346, 'STTC': 5092,
+                            'CD': 4732, 'HYP': 2588}
+            403 recordings carry no diagnostic superclass
+  official folds: train 17,090, val 2,132, test 2,151
+```
+
+Matching this exactly is the check that the download is complete and behaves as
+documented. Note the 2,878 repeat recordings: patient-level splitting is a real
+hazard on this dataset, not a hypothetical one.
+
+### Headline numbers on PTB-XL
+
+`python scripts/run_discovery_experiment.py --data ptbxl --official-split --epochs 60`
+(~35 min; the 500 Hz view is loaded lazily for the test split only, so peak
+memory stays near 2 GB rather than 6 GB)
+
+| quantity | value |
+|---|---|
+| Age regressor test MAE | **7.32 years** (R² 0.694) |
+| Test fold | 2,151 recordings (official fold 10) |
+| Age gap SD | 9.40 years |
+| Known features | 15 (timing, amplitude, axis, morphology) |
+| Explained by demographics | 20.4% |
+| Attributable to known measurements | **14.6%** |
+| Unexplained | **65.0%** |
+| Largest diagnostic ΔAUC | +0.002 (NORM), below the 0.020 threshold |
+
+Sensitivity of the result to analysis choices — the project's central empirical
+finding, and reproducible by varying only the flags shown:
+
+| | 5 features, `patient_level_split`, 40 ep | 5 features, `--official-split`, 60 ep | 15 features, `--official-split`, 60 ep |
+|---|---|---|---|
+| attributable | 3.9% | 3.5% | 14.6% |
+| unexplained | 66.8% | 75.8% | 65.0% |
+| ΔAUC MI | +0.015 (sig.) | +0.007 (ns) | +0.001 (ns) |
+
+The 5-feature configuration is recoverable by setting `known_features` in
+`configs/validation_framework.yaml` back to heart rate, PR, QRS, QT and QTc.
+
+**Phase 7 (fiducial attribution with null controls) has not been run on
+PTB-XL.** Everything in that phase is synthetic-only.
 
 ## Configuration
 

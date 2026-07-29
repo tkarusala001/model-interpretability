@@ -54,6 +54,39 @@ WHAT IS MEASURED
     Fridericia). Both are reported because neither is uniformly preferred:
     Bazett is the clinical convention but over-corrects at high heart rates,
     which Fridericia handles better.
+
+BEYOND TIMING: AMPLITUDE, AXIS AND MORPHOLOGY
+---------------------------------------------
+Intervals are only part of what a cardiologist reads off an ECG, and a
+known-feature set containing only timing would understate what is already
+known - which, by the asymmetry above, would inflate any discovery claim. The
+following are therefore measured as well, all long-established clinical
+quantities:
+
+``r_amplitude_mv``, ``t_amplitude_mv``, ``p_amplitude_mv``
+    Height of each wave above the isoelectric baseline. Amplitude carries
+    information timing does not: voltage reflects muscle mass and the
+    electrical distance from the electrode.
+``st_deviation_mv``
+    Displacement of the ST segment from baseline, measured 60 ms after the J
+    point (the end of the QRS). The classical marker of ischaemia and injury.
+``qrs_axis_deg``, ``t_axis_deg``
+    The direction of the mean depolarisation and repolarisation vectors in the
+    frontal plane, computed from the net deflections in leads I and aVF.
+    Axis deviation is a routine clinical finding and shifts with age, chamber
+    enlargement and conduction disease.
+``sokolow_lyon_mv``
+    S wave in V1 plus the taller R wave of V5 or V6 - the standard voltage
+    criterion for left ventricular hypertrophy.
+``r_progression_lead``
+    The first precordial lead (V1-V6) in which the R wave exceeds the S wave.
+    Normal transition is V3-V4; poor R-wave progression is a recognised
+    abnormality.
+
+These are computed across all twelve leads, unlike the intervals, which are
+delineated on one. Adding them can only ever *increase* the share of the age
+gap attributable to existing knowledge, which is the conservative direction for
+this project's central claim.
 """
 
 from __future__ import annotations
@@ -82,6 +115,7 @@ __all__ = [
 #: The measurable quantities, in reporting order. ``ValidationFrameworkConfig``
 #: selects which of these count as "known" for the residual decomposition.
 INTERVAL_FEATURE_NAMES: tuple[str, ...] = (
+    # Timing
     "heart_rate_bpm",
     "rr_interval_ms",
     "rr_sd_ms",
@@ -91,6 +125,15 @@ INTERVAL_FEATURE_NAMES: tuple[str, ...] = (
     "qt_interval_ms",
     "qtc_bazett_ms",
     "qtc_fridericia_ms",
+    # Amplitude, axis and morphology
+    "r_amplitude_mv",
+    "t_amplitude_mv",
+    "p_amplitude_mv",
+    "st_deviation_mv",
+    "qrs_axis_deg",
+    "t_axis_deg",
+    "sokolow_lyon_mv",
+    "r_progression_lead",
 )
 
 
@@ -123,6 +166,15 @@ class IntervalFeatures:
     qt_interval_ms: float
     qtc_bazett_ms: float
     qtc_fridericia_ms: float
+
+    r_amplitude_mv: float
+    t_amplitude_mv: float
+    p_amplitude_mv: float
+    st_deviation_mv: float
+    qrs_axis_deg: float
+    t_axis_deg: float
+    sokolow_lyon_mv: float
+    r_progression_lead: float
 
     n_beats: int
     p_detection_rate: float
@@ -159,6 +211,9 @@ class IntervalFeatures:
             heart_rate_bpm=nan, rr_interval_ms=nan, rr_sd_ms=nan,
             p_duration_ms=nan, pr_interval_ms=nan, qrs_duration_ms=nan,
             qt_interval_ms=nan, qtc_bazett_ms=nan, qtc_fridericia_ms=nan,
+            r_amplitude_mv=nan, t_amplitude_mv=nan, p_amplitude_mv=nan,
+            st_deviation_mv=nan, qrs_axis_deg=nan, t_axis_deg=nan,
+            sokolow_lyon_mv=nan, r_progression_lead=nan,
             n_beats=0, p_detection_rate=0.0, t_detection_rate=0.0,
         )
 
@@ -176,6 +231,141 @@ def _aggregate(values: Sequence[float], how: str) -> float:
     if not finite:
         return float("nan")
     return float(np.median(finite) if how == "median" else np.mean(finite))
+
+
+def _amplitude_features(
+    signal_array: np.ndarray,
+    beats: Sequence[BeatDelineation],
+    lead_names: Sequence[str],
+    sampling_rate_hz: float,
+    config: SignalProcessingConfig,
+) -> dict[str, float]:
+    """Measure wave amplitudes, ST deviation, electrical axis and R progression.
+
+    Unlike the intervals, these read all twelve leads: amplitude is a property
+    of the direction the electrode looks from, so the same beat is tall in one
+    lead and inverted in another. Each lead gets its own isoelectric reference,
+    taken from its own PR segment, because baseline offset differs per lead.
+
+    Returns NaN for any quantity whose required leads are absent, rather than
+    substituting a value - a fabricated measurement would enter the
+    known-feature set as though it had been observed.
+    """
+    nan = float("nan")
+    empty = {
+        "r_amplitude_mv": nan, "t_amplitude_mv": nan, "p_amplitude_mv": nan,
+        "st_deviation_mv": nan, "qrs_axis_deg": nan, "t_axis_deg": nan,
+        "sokolow_lyon_mv": nan, "r_progression_lead": nan,
+    }
+    array = np.asarray(signal_array, dtype=np.float64)
+    if array.ndim != 2 or not beats:
+        return empty
+
+    lead_index = {name: i for i, name in enumerate(lead_names) if i < array.shape[0]}
+    st_offset = int(round(0.060 * sampling_rate_hz))     # J point + 60 ms, standard
+    baseline_window = max(
+        int(round(config.baseline_window_ms / 1000.0 * sampling_rate_hz)), 1
+    )
+
+    def lead_baseline(lead: int, beat: BeatDelineation) -> float:
+        """Isoelectric level for one lead, from the PR segment before the complex."""
+        high = max(beat.qrs.onset - 1, 0)
+        low = max(high - baseline_window, 0)
+        return float(np.median(array[lead, low : high + 1])) if high > low else 0.0
+
+    # Per-beat, per-lead measurements, aggregated with the median across beats.
+    r_amp: list[float] = []
+    t_amp: list[float] = []
+    p_amp: list[float] = []
+    st_dev: list[float] = []
+    axis_qrs: list[float] = []
+    axis_t: list[float] = []
+    sokolow: list[float] = []
+    progression: list[float] = []
+
+    reference = lead_index.get("II", 0)
+    for beat in beats:
+        base_ref = lead_baseline(reference, beat)
+        r_amp.append(abs(array[reference, beat.r_peak] - base_ref))
+        if beat.t_wave is not None:
+            t_amp.append(array[reference, beat.t_wave.peak] - base_ref)
+        if beat.p_wave is not None:
+            p_amp.append(array[reference, beat.p_wave.peak] - base_ref)
+
+        # ST deviation: largest displacement across leads 60 ms after the J point.
+        j_point = beat.qrs.offset + st_offset
+        if j_point < array.shape[1]:
+            deviations = [
+                array[lead, j_point] - lead_baseline(lead, beat)
+                for lead in lead_index.values()
+            ]
+            st_dev.append(max(deviations, key=abs))
+
+        # Frontal-plane axes from the net deflection in leads I and aVF.
+        if "I" in lead_index and "aVF" in lead_index:
+            def net(lead: int, start: int, stop: int) -> float:
+                base = lead_baseline(lead, beat)
+                segment = array[lead, max(start, 0) : min(stop + 1, array.shape[1])]
+                return float(np.sum(segment - base)) if segment.size else 0.0
+
+            qrs_i = net(lead_index["I"], beat.qrs.onset, beat.qrs.offset)
+            qrs_f = net(lead_index["aVF"], beat.qrs.onset, beat.qrs.offset)
+            if abs(qrs_i) > 1e-9 or abs(qrs_f) > 1e-9:
+                axis_qrs.append(math.degrees(math.atan2(qrs_f, qrs_i)))
+            if beat.t_wave is not None:
+                t_i = net(lead_index["I"], beat.t_wave.onset, beat.t_wave.offset)
+                t_f = net(lead_index["aVF"], beat.t_wave.onset, beat.t_wave.offset)
+                if abs(t_i) > 1e-9 or abs(t_f) > 1e-9:
+                    axis_t.append(math.degrees(math.atan2(t_f, t_i)))
+
+        # Sokolow-Lyon voltage: depth of S in V1 plus the taller R of V5/V6.
+        if all(name in lead_index for name in ("V1", "V5", "V6")):
+            window = slice(beat.qrs.onset, beat.qrs.offset + 1)
+            s_v1 = abs(min(0.0, float(array[lead_index["V1"], window].min())
+                           - lead_baseline(lead_index["V1"], beat)))
+            r_v5 = max(0.0, float(array[lead_index["V5"], window].max())
+                       - lead_baseline(lead_index["V5"], beat))
+            r_v6 = max(0.0, float(array[lead_index["V6"], window].max())
+                       - lead_baseline(lead_index["V6"], beat))
+            sokolow.append(s_v1 + max(r_v5, r_v6))
+
+        # R-wave progression: first precordial lead where R exceeds S.
+        precordial = [f"V{i}" for i in range(1, 7)]
+        if all(name in lead_index for name in precordial):
+            window = slice(beat.qrs.onset, beat.qrs.offset + 1)
+            transition = float("nan")
+            for position, name in enumerate(precordial, start=1):
+                lead = lead_index[name]
+                base = lead_baseline(lead, beat)
+                r_height = max(0.0, float(array[lead, window].max()) - base)
+                s_depth = abs(min(0.0, float(array[lead, window].min()) - base))
+                if r_height > s_depth:
+                    transition = float(position)
+                    break
+            progression.append(transition)
+
+    def median_of(values: Sequence[float]) -> float:
+        finite = [v for v in values if v is not None and np.isfinite(v)]
+        return float(np.median(finite)) if finite else nan
+
+    return {
+        "r_amplitude_mv": median_of(r_amp),
+        "t_amplitude_mv": median_of(t_amp),
+        "p_amplitude_mv": median_of(p_amp),
+        "st_deviation_mv": median_of(st_dev),
+        # Axes are directions, so the median is taken on the unwrapped angle to
+        # avoid the wrap at +/-180 degrees producing a meaningless average.
+        "qrs_axis_deg": (
+            float(np.degrees(np.median(np.unwrap(np.radians(axis_qrs)))))
+            if axis_qrs else nan
+        ),
+        "t_axis_deg": (
+            float(np.degrees(np.median(np.unwrap(np.radians(axis_t)))))
+            if axis_t else nan
+        ),
+        "sokolow_lyon_mv": median_of(sokolow),
+        "r_progression_lead": median_of(progression),
+    }
 
 
 def compute_interval_features(
@@ -273,6 +463,11 @@ def compute_interval_features(
     else:
         qtc_bazett = qtc_fridericia = float("nan")
 
+    amplitudes = _amplitude_features(
+        signal_array, beats, lead_names or _default_lead_names(signal_array),
+        sampling_rate_hz, config,
+    )
+
     return IntervalFeatures(
         heart_rate_bpm=heart_rate,
         rr_interval_ms=rr_interval,
@@ -283,10 +478,20 @@ def compute_interval_features(
         qt_interval_ms=qt_interval,
         qtc_bazett_ms=qtc_bazett,
         qtc_fridericia_ms=qtc_fridericia,
+        **amplitudes,
         n_beats=len(beats),
         p_detection_rate=n_with_p / len(beats),
         t_detection_rate=n_with_t / len(beats),
     )
+
+
+def _default_lead_names(signal_array: np.ndarray) -> tuple[str, ...]:
+    """Standard 12-lead order, truncated to whatever was supplied."""
+    from ecg_discovery.data.synthetic_ecg import LEAD_NAMES
+
+    array = np.asarray(signal_array)
+    n_leads = array.shape[0] if array.ndim == 2 else 1
+    return LEAD_NAMES[:n_leads]
 
 
 def interval_features_table(

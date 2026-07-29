@@ -3,29 +3,61 @@
 Ordered by how much they constrain the conclusions, not by how comfortable they
 are to state.
 
-## 1. Nothing has been validated on real ECGs yet
+## 1. The unexplained residual is a ceiling, not a discovery
 
-**Every number produced by this repository so far comes from a synthetic
-cohort whose answers we constructed ourselves.** PTB-XL has not been
-downloaded, so the real-data path — written and unit-tested against a
-miniature dataset with PTB-XL's schema — has never actually run.
+Phases 8 and 9 have now run on PTB-XL. Known measurements explain **14.6%** of
+the age-gap residual beyond demographics, leaving **65.0%** unexplained. That
+65% must not be read as a discovery, for three reasons that are all visible in
+the data.
 
-This is the largest gap between what the code does and what a paper would
-claim. Synthetic validation establishes that the machinery is correct: that
-R peaks are found to within one sample, that measured intervals track
-constructed ones, that attribution localises a known injected effect, and that
-the decomposition behaves correctly in both directions. It establishes nothing
-whatsoever about hearts.
+**The model's own error is in there.** Test MAE is 7.32 years and the age gap
+has SD 9.40, so a substantial share of the "residual" is simply the model being
+wrong. No ECG measurement can explain a neural network's error, and on real
+data there is no ground truth that would let us separate the two.
 
-Specifically pending real data:
+**The number moves with things that have nothing to do with discovery.** A
+better-trained model was *less* regressive, so demographics explained less of
+its gap (29.3% → 20.7%) and the unexplained share went *up* (66.8% → 75.8%)
+while the attributable share stayed flat. Unexplained fraction is not a
+discovery metric.
 
-- The Phase 9 result. On synthetic data the diagnostic labels are linked to the
-  unexplained channel **by construction**, so the positive result there confirms
-  only that the experiment can detect a link when one exists.
-- Whether the QRS-detection and delineation parameters, tuned on smooth
-  synthetic waveforms, hold up on clinical recordings with pathology, artefact
-  and pacing.
-- The headline decomposition number itself.
+**It shrinks as the known-feature set grows.** Going from 5 to 15 classical
+measurements quadrupled the attributable share, 3.5% → 14.6%, with no change to
+the model. There is no reason to think 15 is the ceiling; a full clinical
+feature set would explain more still. See §3.
+
+### What remains untested on real data
+
+- **Phase 7 fiducial attribution.** The analysis and its null controls are
+  written and unit-tested, but have run on synthetic data only.
+- **Delineation on pathological rhythms.** Atrial fibrillation, bundle branch
+  block and paced rhythms get no special handling and are unvalidated. One
+  real-data failure has already been found and fixed (see §6).
+
+## 1b. The diagnostic association did not replicate — and that is the finding
+
+Across three progressively stricter analyses, every apparent link between the
+unexplained residual and cardiologist labels shrank toward zero:
+
+| | 5 features, own split | 5 features, official folds | 15 features, official folds |
+|---|---|---|---|
+| ΔAUC, MI | **+0.015 \*** | +0.007 ns | +0.001 ns |
+| ΔAUC, NORM | +0.008 * | +0.012 * | +0.002 * |
+
+The MI association was statistically significant after Bonferroni correction in
+the first analysis. It would have been a reportable positive finding. It did not
+survive a change of split, and did not survive a more complete definition of
+"already known".
+
+NORM remains nominally significant at +0.002 AUC, which is below the 0.020
+clinical-relevance threshold fixed before any data was examined. With 2,129
+recordings, statistical detectability at this effect size carries no clinical
+meaning, and the reporting code flags it automatically.
+
+**The honest conclusion is that this model's age gap contains no clinically
+meaningful, independently verifiable information beyond what classical ECG
+measurement already provides** — and that an analysis stopping one step earlier
+would have concluded otherwise.
 
 ## 2. Single-lead delineation, and a test fixture that cannot detect the problem
 
@@ -40,17 +72,23 @@ is **zero by construction**. Every delineation accuracy figure quoted here is
 therefore silent on the single-lead bias — a limitation of the test fixture, not
 evidence that the bias is absent. It must be re-checked on PTB-XL.
 
-## 3. The known-feature set is small, and that inflates the discovery claim
+## 3. The known-feature set is still incomplete, and that inflates the residual
 
-The decomposition regresses the age gap against five interval measurements:
-heart rate, PR, QRS duration, QT and QTc. A cardiologist has more —
-amplitudes, axis, ST deviation, T-wave morphology, R-wave progression,
-QRS fragmentation.
+The decomposition now uses **15** classical measurements — heart rate, HRV, PR,
+P duration, QRS duration, QT, QTc, R/T/P amplitudes, ST deviation, QRS and T
+axes, Sokolow-Lyon voltage, and R-wave progression. That is far more than the
+original five, and the effect of expanding it was large: attributable variance
+went from 3.5% to 14.6% with no change to the model.
 
-**A richer known-feature set could only ever explain more**, so the reported
-unexplained share is an upper bound rather than an estimate. This is the single
-most important caveat on the central result, and it is why the write-up says
-"we have not shown this is already known" rather than "this is new".
+**That expansion is direct evidence this list is still not the ceiling.** A
+full clinical feature set would include T-wave symmetry and notching, QRS
+fragmentation, P-wave dispersion, ST slope morphology, late potentials, and
+lead-specific patterns this project does not compute. Each would explain more,
+and the unexplained share would fall further.
+
+So the reported 65% is an **upper bound on what could be new**, not an
+estimate of it — which is why the write-up says "we have not shown this is
+already known" rather than "this is new".
 
 ## 4. Every error in the pipeline points toward claiming a discovery
 
@@ -79,6 +117,18 @@ in principle" is **not** a valid argument for novelty. Only the measurement can
 be regressed out, and only the measurement is what a clinician has.
 
 ## 6. Signal-processing limitations, individually measured
+
+**One failure was found only on real data.** P-wave boundary search terminated
+when the signal fell below 20% of P-wave height. A real P wave is ~0.1 mV, so
+that threshold is ~0.02 mV — comparable to baseline noise. On clean synthetic
+data the search terminated correctly; on PTB-XL it ran to the edge of the search
+window in 22% of beats, producing P waves over 200 ms wide (physiologically
+impossible) in 19.5% of recordings and PR intervals pinned at the window ceiling
+in 16%. Since PR is a known feature, this had been inflating the unexplained
+residual. Fixed with a sustained quiet-run requirement plus a physiological cap,
+and pinned by a test that reproduces the failure synthetically at a raised noise
+floor. It is recorded here because it is the clearest example in the project of
+synthetic validation being necessary but not sufficient.
 
 - **T-wave onset is the least accurate fiducial**, around 24 ms late. It feeds no
   known interval (QT uses T-*offset*) but shifts the Phase 6 T-segment boundary,

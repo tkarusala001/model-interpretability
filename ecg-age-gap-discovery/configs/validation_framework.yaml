@@ -7,12 +7,30 @@
 # The "already known" feature set. Any signal explainable from these is
 # rediscovery, not discovery. Adding features here can only ever shrink the
 # unexplained residual - see docs/limitations.md.
+# Everything a cardiologist routinely measures. Deliberately broad: adding a
+# feature here can only ever INCREASE the share attributed to existing
+# knowledge, which shrinks the discovery claim. That is the conservative
+# direction, and the reason a thin known-feature set is a weakness rather than
+# a convenience. All are computed by classical signal processing with no
+# learning of any kind.
 known_features:
+  # Timing
   - heart_rate_bpm
+  - rr_sd_ms              # heart-rate variability
   - qrs_duration_ms
   - pr_interval_ms
+  - p_duration_ms
   - qt_interval_ms
   - qtc_bazett_ms
+  # Amplitude, axis and morphology
+  - r_amplitude_mv
+  - t_amplitude_mv
+  - p_amplitude_mv
+  - st_deviation_mv
+  - qrs_axis_deg
+  - t_axis_deg
+  - sokolow_lyon_mv       # standard LVH voltage criterion
+  - r_progression_lead
 
 # Both models are always fitted and both are always reported, so there is no
 # opportunity to cherry-pick the more favourable R^2.

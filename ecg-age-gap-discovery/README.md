@@ -15,14 +15,13 @@ bash scripts/run_full_pipeline.sh     # every phase, end to end, no data needed
 ```
 
 > ### Status
-> **Phases 1–11 complete; 333 tests passing.** Everything is validated against a
-> synthetic cohort with constructed ground truth.
+> **Phases 1–11 complete; 350 tests passing.** Validated against a synthetic
+> cohort with constructed ground truth, **and run end to end on PTB-XL**
+> (21,373 recordings, 18,495 patients, official folds).
 >
-> **No result here has been produced on real ECGs yet.** PTB-XL is not
-> downloaded, so the real-data path — written and unit-tested against a
-> miniature dataset with PTB-XL's schema — has not been run. That is the largest
-> gap between this code and a paper, and it is tracked as
-> [limitations.md §1](docs/limitations.md).
+> Still outstanding: the fiducial-attribution analysis (Phase 7) has run on
+> synthetic data only. The null controls it needs are built and tested; the
+> real-data run is pending.
 
 ## What is and is not claimed
 
@@ -43,12 +42,19 @@ dominant in nearly every recording as an artefact of arithmetic. Both a
 width-confounded `share` and a width-corrected `density` are always reported.
 
 **2. A rediscovery-vs-discovery validation framework.** The age-gap residual is
-regressed against independently computed classical intervals. Only the variance
-those known measurements *fail* to explain is eligible to be called a discovery
-candidate. The generalisable template — *regress the novel signal against
-everything already known; only the residual is a candidate* — is the part
-intended to outlive this dataset. See
+regressed against independently computed classical measurements — 15 of them,
+spanning timing, amplitude, axis and morphology. Only the variance they *fail*
+to explain is eligible to be called a discovery candidate. The generalisable
+template — *regress the novel signal against everything already known; only the
+residual is a candidate* — is the part intended to outlive this dataset. See
 [validation_methodology.md](docs/validation_methodology.md).
+
+**2b. Null controls for segment attribution.** A segment attribution profile
+can simply restate where the signal is largest. Three controls — signal
+amplitude, an untrained model, and a model trained on permuted labels — separate
+"what the model attends to" from "where the ECG is big". On synthetic data with
+known ground truth, density-based attribution pointed at the *wrong wave*
+without them.
 
 **3. Reporting whichever outcome occurs.** A null result is reported in the same
 format as a positive one, enforced in code rather than promised in prose.
@@ -79,7 +85,43 @@ signal rather than memorisation.
   contribution and a claim about aggregation is weaker if the underlying numbers
   arrive from an opaque dependency.
 
+## Results on PTB-XL
+
+Age regressor on the official test fold (2,151 human-over-read recordings):
+**MAE 7.32 years, R² 0.694** — comparable to published ECG-age models, from
+326,497 parameters trained from scratch on 17,090 recordings.
+
+The headline result is what happens to the "discovery" as the analysis gets
+more rigorous. Three runs, each stricter than the last:
+
+| | A: 5 features<br>own split | B: 5 features<br>official folds | C: **15 features**<br>official folds |
+|---|---|---|---|
+| test MAE | 7.53 | 7.32 | 7.32 |
+| attributable to known | 3.9% | 3.5% | **14.6%** |
+| unexplained | 66.8% | 75.8% | **65.0%** |
+| ΔAUC, NORM | +0.008 * | +0.012 * | **+0.002** * |
+| ΔAUC, MI | **+0.015 \*** | +0.007 ns | **+0.001** ns |
+
+**Every apparent effect shrank under scrutiny.** The MI association would have
+been the headline of run A — "the unexplained ECG age gap improves myocardial
+infarction detection". It failed to replicate on a different split (B), and
+collapsed to +0.001 once the known-feature set included the amplitude, axis and
+ST measurements a cardiologist actually uses (C).
+
+Note what produced that collapse: **nothing about the model changed** between B
+and C. Same architecture, same seed, same 7.32 MAE. Only the definition of
+"already known" got more complete — which quadrupled the attributable share and
+took the residual's apparent value to zero.
+
+This is a direct empirical demonstration of the error asymmetry above: a thin
+definition of "already known" inflates both the unexplained residual *and* the
+apparent value of that residual. Every remaining effect is below the 0.020 AUC
+clinical-relevance threshold fixed before any data was seen.
+
 ## Results on synthetic data
+
+The machinery is validated separately against constructed ground truth, where
+the answer is known:
 
 | | |
 |---|---|
@@ -90,10 +132,9 @@ signal rather than memorisation.
 
 Validated in **both** directions: a cohort whose age signal runs entirely
 through QRS duration is correctly attributed to known features, and one carried
-by T-wave morphology correctly survives as a large unexplained residual.
-
-Again: these demonstrate the machinery is correct. They are not findings about
-hearts.
+by T-wave morphology correctly survives as a large unexplained residual. So the
+3.5% found on PTB-XL is not the framework failing to detect things — it detects
+them when they are there.
 
 ## Data
 
@@ -134,9 +175,9 @@ ecg_discovery/
 | 4 | From-scratch age regressor | done |
 | 5 | Training loop, patient-level splits | done |
 | 6 | Fiducial-segment attribution | done |
-| 7 | Attribution analysis | code done, **not run on PTB-XL** |
-| 8 | Residual decomposition | done |
-| 9 | Discovery experiment | done, **synthetic only** |
+| 7 | Attribution analysis + null controls | code done, **not yet run on PTB-XL** |
+| 8 | Residual decomposition | done, **run on PTB-XL** |
+| 9 | Discovery experiment | done, **run on PTB-XL** |
 | 10 | Visualization | done |
 | 11 | Packaging and docs | done |
 

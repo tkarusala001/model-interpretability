@@ -75,6 +75,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--epochs", type=int, default=40)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--runs-dir", type=Path, default=None)
+    parser.add_argument(
+        "--official-split", action="store_true",
+        help="use PTB-XL's own strat_fold split (1-8 train, 9 val, 10 test) "
+             "instead of a fresh patient-level split. Folds 9 and 10 received "
+             "human over-reading, and published work uses them, so this makes "
+             "results comparable with the literature.",
+    )
     return parser.parse_args(argv)
 
 
@@ -92,24 +99,33 @@ def main(argv: list[str] | None = None) -> int:
         epochs=args.epochs, seed=args.seed, experiment_name="discovery_experiment",
     )
 
+    # The 500 Hz view is loaded later, for the test split only. Loading all of
+    # PTB-XL at 500 Hz costs ~5 GB as float32 against ~0.5 GB for the test
+    # split, and interval measurement never needs the rest.
+    load_intervals_later = None
     if args.data == "ptbxl":
         from ecg_discovery.data.ptbxl_dataset import (
             DIAGNOSTIC_SUPERCLASSES,
             load_ptbxl,
+            load_waveform_subset,
             summarise_ptbxl,
         )
 
         print(summarise_ptbxl(args.ptbxl_root, data_config))
         model_view = load_ptbxl(args.ptbxl_root, data_config,
                                 sampling_rate_hz=data_config.sampling_rate_hz, progress=True)
-        interval_view = load_ptbxl(args.ptbxl_root, data_config,
-                                   sampling_rate_hz=data_config.interval_sampling_rate_hz,
-                                   progress=True)
-        signals_model, signals_intervals = model_view.signals, interval_view.signals
+        signals_model = model_view.signals
+        signals_intervals = None
         ages, sexes = model_view.ages, model_view.sexes.astype(np.float64)
         patient_ids, record_ids = model_view.patient_ids, model_view.record_ids
         diagnostic_labels = model_view.diagnostic_labels
         superclass_names = DIAGNOSTIC_SUPERCLASSES
+
+        def load_intervals_later(indices):
+            return load_waveform_subset(
+                args.ptbxl_root, model_view.metadata, indices,
+                data_config.interval_sampling_rate_hz,
+            )
     else:
         synthetic = dataclasses.replace(
             load_config(SyntheticConfig, CONFIG_DIR / "synthetic.yaml"),
@@ -143,11 +159,20 @@ def main(argv: list[str] | None = None) -> int:
         print(f"run directory: {run.dir}\n")
 
         # -- 1. Train ---------------------------------------------------------
+        chosen_split = None
+        if args.official_split:
+            if args.data != "ptbxl":
+                raise SystemExit("--official-split requires --data ptbxl")
+            from ecg_discovery.data.ptbxl_dataset import official_split
+
+            chosen_split = official_split(model_view.strat_folds, patient_ids)
+            print(f"using PTB-XL official folds: {chosen_split.sizes}")
+
         result = train_age_regressor(
             signals=signals_model, ages=ages, sexes=sexes, patient_ids=patient_ids,
             record_ids=record_ids, data_config=data_config,
             backbone_config=backbone_config, training_config=training_config,
-            run=run, progress=True,
+            run=run, progress=True, splits=chosen_split,
         )
         test = result.predictions["test"]
         print(f"\ntest MAE {result.test_metrics['mae']:.2f} years | "
@@ -156,11 +181,16 @@ def main(argv: list[str] | None = None) -> int:
         # -- 2. Measure classical intervals -----------------------------------
         print(f"\nmeasuring intervals on {len(test.indices)} test recordings at "
               f"{data_config.interval_sampling_rate_hz} Hz ...")
+        test_signals_500 = (
+            load_intervals_later(test.indices) if load_intervals_later is not None
+            else signals_intervals[test.indices]
+        )
         features = interval_features_table(
-            signals_intervals[test.indices],
+            test_signals_500,
             float(data_config.interval_sampling_rate_hz),
             signal_config, LEAD_NAMES,
         )
+        del test_signals_500
 
         # -- 3. Decompose -----------------------------------------------------
         decomposition = decompose_age_gap(

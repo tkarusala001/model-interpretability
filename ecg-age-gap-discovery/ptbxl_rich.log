@@ -1,0 +1,104 @@
+PTB-XL at data/ptbxl
+  raw:      21,799 recordings, 18,869 patients
+            293 with the age-300 sentinel (>89 years, dropped)
+            age range 2-89
+  filtered: 21,373 recordings, 18,495 patients
+            age 18-89 (mean 59.8), 48% female
+            repeat patients: 2,878 extra recordings
+  diagnostic superclasses: {'NORM': 9375, 'MI': 5346, 'STTC': 5092, 'CD': 4732, 'HYP': 2588}
+            403 recordings carry no diagnostic superclass
+  official folds: train 17,090, val 2,132, test 2,151
+  loaded 2000/21373 recordings
+  loaded 4000/21373 recordings
+  loaded 6000/21373 recordings
+  loaded 8000/21373 recordings
+  loaded 10000/21373 recordings
+  loaded 12000/21373 recordings
+  loaded 14000/21373 recordings
+  loaded 16000/21373 recordings
+  loaded 18000/21373 recordings
+  loaded 20000/21373 recordings
+run directory: runs/discovery_experiment/20260729T050343Z
+
+using PTB-XL official folds: {'train': 17090, 'val': 2132, 'test': 2151}
+epoch   0  train   9.721  val_mae  14.89  lr 5.00e-04
+epoch   1  train   7.429  val_mae  11.34  lr 1.00e-03
+epoch   2  train   6.857  val_mae   9.52  lr 1.00e-03
+epoch   3  train   6.558  val_mae   8.80  lr 9.99e-04
+epoch   4  train   6.267  val_mae  13.00  lr 9.97e-04
+epoch   5  train   6.062  val_mae   8.51  lr 9.93e-04
+epoch   6  train   5.921  val_mae   8.91  lr 9.88e-04
+epoch   7  train   5.776  val_mae   8.52  lr 9.82e-04
+epoch   8  train   5.703  val_mae   9.01  lr 9.74e-04
+epoch   9  train   5.656  val_mae   9.62  lr 9.64e-04
+epoch  10  train   5.527  val_mae   8.13  lr 9.54e-04
+epoch  11  train   5.432  val_mae   9.30  lr 9.42e-04
+epoch  12  train   5.367  val_mae   8.47  lr 9.28e-04
+epoch  13  train   5.342  val_mae   8.40  lr 9.14e-04
+epoch  14  train   5.226  val_mae   7.71  lr 8.98e-04
+epoch  15  train   5.188  val_mae   7.67  lr 8.81e-04
+epoch  16  train   5.117  val_mae   8.61  lr 8.63e-04
+epoch  17  train   5.086  val_mae   7.61  lr 8.44e-04
+epoch  18  train   5.017  val_mae   8.93  lr 8.24e-04
+epoch  19  train   4.965  val_mae   7.91  lr 8.03e-04
+epoch  20  train   4.921  val_mae   8.09  lr 7.81e-04
+epoch  21  train   4.889  val_mae   7.78  lr 7.58e-04
+epoch  22  train   4.805  val_mae   7.70  lr 7.34e-04
+epoch  23  train   4.769  val_mae   7.96  lr 7.10e-04
+epoch  24  train   4.731  val_mae   7.82  lr 6.85e-04
+epoch  25  train   4.728  val_mae   7.56  lr 6.60e-04
+epoch  26  train   4.634  val_mae   7.48  lr 6.34e-04
+epoch  27  train   4.591  val_mae   7.56  lr 6.07e-04
+epoch  28  train   4.573  val_mae   7.88  lr 5.81e-04
+epoch  29  train   4.511  val_mae   7.46  lr 5.54e-04
+epoch  30  train   4.525  val_mae   7.85  lr 5.27e-04
+epoch  31  train   4.430  val_mae   7.50  lr 5.00e-04
+epoch  32  train   4.438  val_mae   7.77  lr 4.73e-04
+epoch  33  train   4.386  val_mae   7.89  lr 4.46e-04
+epoch  34  train   4.315  val_mae   7.59  lr 4.19e-04
+epoch  35  train   4.305  val_mae   7.34  lr 3.93e-04
+epoch  36  train   4.252  val_mae   7.58  lr 3.66e-04
+epoch  37  train   4.200  val_mae   7.59  lr 3.40e-04
+epoch  38  train   4.205  val_mae   7.59  lr 3.15e-04
+epoch  39  train   4.194  val_mae   7.44  lr 2.90e-04
+epoch  40  train   4.100  val_mae   7.44  lr 2.66e-04
+epoch  41  train   4.117  val_mae   7.40  lr 2.42e-04
+epoch  42  train   4.099  val_mae   7.72  lr 2.19e-04
+epoch  43  train   4.061  val_mae   7.53  lr 1.97e-04
+epoch  44  train   4.018  val_mae   7.61  lr 1.76e-04
+epoch  45  train   4.007  val_mae   7.47  lr 1.56e-04
+epoch  46  train   3.959  val_mae   7.60  lr 1.37e-04
+epoch  47  train   3.985  val_mae   7.69  lr 1.19e-04
+
+test MAE 7.32 years | R^2 0.694
+
+measuring intervals on 2151 test recordings at 500 Hz ...
+
+Age-gap residual decomposition over 2129 recordings (SD 9.40 years; 22 dropped for unmeasurable intervals).
+Known features: heart_rate_bpm, rr_sd_ms, qrs_duration_ms, pr_interval_ms, p_duration_ms, qt_interval_ms, qtc_bazett_ms, r_amplitude_mv, t_amplitude_mv, p_amplitude_mv, st_deviation_mv, qrs_axis_deg, t_axis_deg, sokolow_lyon_mv, r_progression_lead
+Adjusted for: age, sex
+
+explainer             demographics   + intervals  attributable   unexplained
+linear                      18.8%         29.0%         10.2%         71.0%
+gradient_boosting           20.4%         35.0%         14.6%         65.0%
+
+Headline: known ECG intervals explain 14.6% of the age-gap residual beyond demographics; 65.0% is unexplained (gradient_boosting, out-of-fold).
+The unexplained share is a CANDIDATE for new signal, not evidence of it. Every weakness in this pipeline - measurement noise, a small known-feature set, an under-powered explainer - inflates it.
+
+========================================================================
+Does the unexplained age-gap residual predict diagnosis beyond known intervals?  (2129 recordings, out-of-fold AUC, Bonferroni x5 correction across 5 superclasses)
+
+superclass       n+   baseline  augmented    delta            95% CI
+NORM            955      0.875      0.877   +0.002  [+0.001, +0.003]  *
+MI              519      0.770      0.771   +0.001  [-0.008, +0.008]
+STTC            496      0.842      0.843   +0.001  [-0.004, +0.003]
+CD              462      0.751      0.753   +0.002  [-0.002, +0.010]
+HYP             250      0.834      0.835   +0.001  [-0.006, +0.005]
+
+RESULT: the unexplained residual improves prediction of NORM beyond known intervals (largest gain +0.002 AUC for NORM).
+
+This is a CANDIDATE signal for follow-up clinical validation, not a validated marker. It shows the residual carries information correlated with cardiologist labels in this dataset. It does not establish causation, clinical utility, or that the effect replicates in another cohort.
+NOTE: the improvement is statistically distinguishable from zero but small (+0.002 AUC, below the 0.020 threshold set in advance for a clinically meaningful effect). Statistical detectability is not clinical relevance.
+========================================================================
+
+artifacts written to runs/discovery_experiment/20260729T050343Z/artifacts

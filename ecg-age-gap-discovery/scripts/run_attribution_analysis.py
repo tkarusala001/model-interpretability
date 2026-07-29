@@ -82,6 +82,19 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="test recordings to attribute for the cohort summary")
     parser.add_argument("--ig-steps", type=int, default=64)
     parser.add_argument("--runs-dir", type=Path, default=None)
+    parser.add_argument("--official-split", action="store_true",
+                        help="use PTB-XL's own strat_fold split (requires --data ptbxl)")
+    parser.add_argument(
+        "--with-controls", action="store_true",
+        help="compare the attribution profile against null controls (amplitude "
+             "and an untrained model). Without this, a segment profile cannot be "
+             "distinguished from the ECG's own amplitude structure.",
+    )
+    parser.add_argument(
+        "--shuffled-control", action="store_true",
+        help="additionally train a model on permuted ages as the strongest "
+             "control. Costs a full extra training run.",
+    )
     return parser.parse_args(argv)
 
 
@@ -94,7 +107,7 @@ def _load_data(args, data_config: DataConfig):
         data = load_ptbxl(args.ptbxl_root, data_config, progress=True)
         return (
             data.signals, data.ages, data.sexes.astype(np.float64),
-            data.patient_ids, data.record_ids, LEAD_NAMES,
+            data.patient_ids, data.record_ids, LEAD_NAMES, data.strat_folds,
         )
 
     synthetic = dataclasses.replace(
@@ -108,7 +121,7 @@ def _load_data(args, data_config: DataConfig):
     )
     return (
         signals, cohort.ages, cohort.sexes.astype(np.float64),
-        cohort.patient_ids, [r.record_id for r in cohort], LEAD_NAMES,
+        cohort.patient_ids, [r.record_id for r in cohort], LEAD_NAMES, None,
     )
 
 
@@ -123,7 +136,7 @@ def main(argv: list[str] | None = None) -> int:
         epochs=args.epochs, seed=args.seed, experiment_name="attribution_analysis",
     )
 
-    signals, ages, sexes, patient_ids, record_ids, lead_names = _load_data(
+    signals, ages, sexes, patient_ids, record_ids, lead_names, strat_folds = _load_data(
         args, data_config
     )
     rate = data_config.sampling_rate_hz
@@ -137,11 +150,18 @@ def main(argv: list[str] | None = None) -> int:
     ) as run:
         print(f"run directory: {run.dir}\n")
 
+        chosen_split = None
+        if args.official_split:
+            from ecg_discovery.data.ptbxl_dataset import official_split
+
+            chosen_split = official_split(strat_folds, patient_ids)
+            print(f"using PTB-XL official folds: {chosen_split.sizes}")
+
         result = train_age_regressor(
             signals=signals, ages=ages, sexes=sexes, patient_ids=patient_ids,
             record_ids=record_ids, data_config=data_config,
             backbone_config=backbone_config, training_config=training_config,
-            run=run, progress=True,
+            run=run, progress=True, splits=chosen_split,
         )
         metrics = result.test_metrics
         print(
@@ -168,6 +188,8 @@ def main(argv: list[str] | None = None) -> int:
               f"{args.ig_steps} steps) ...")
 
         summaries = []
+        cohort_beats: list = []
+        cohort_rows: list[int] = []
         for start in range(0, n_cohort, 32):
             block = cohort_positions[start : start + 32]
             rows = test.indices[block]
@@ -182,6 +204,8 @@ def main(argv: list[str] | None = None) -> int:
                 beats = delineate_beats(
                     signals[row], rate, detection.r_peaks, signal_config, lead_names
                 )
+                cohort_beats.append(beats)
+                cohort_rows.append(int(row))
                 summaries.append(
                     aggregate_by_fiducial_segment(
                         attribution.attributions[offset], beats, lead_names,
@@ -204,6 +228,59 @@ def main(argv: list[str] | None = None) -> int:
             row = by_segment.loc[segment]
             print(f"  {segment:<9}  {row['share']:>13.1%}  {row['density']:>19.4g}")
         print("  (share is confounded by segment width; density is not)")
+
+        # -- Null controls -----------------------------------------------------
+        if args.with_controls:
+            from ecg_discovery.interpretability.attribution_controls import (
+                compare_against_controls,
+            )
+            from ecg_discovery.models.ecg_age_regressor import ECGAgeRegressor
+
+            print("\n" + "=" * 72)
+            print("NULL CONTROLS: is this profile the model, or the signal?")
+            rows = np.array(cohort_rows)
+            untrained = ECGAgeRegressor(backbone_config).eval()
+
+            shuffled_model = None
+            if args.shuffled_control:
+                print("training a control model on permuted ages ...")
+                permuted = np.random.default_rng(args.seed).permutation(ages)
+                shuffled = train_age_regressor(
+                    signals=signals, ages=permuted, sexes=sexes,
+                    patient_ids=patient_ids, data_config=data_config,
+                    backbone_config=backbone_config,
+                    training_config=training_config, splits=chosen_split,
+                )
+                shuffled_model = shuffled.model
+                print(f"  shuffled-label model test MAE "
+                      f"{shuffled.test_metrics['mae']:.2f} years "
+                      "(should be near the constant-prediction baseline)")
+
+            comparison = compare_against_controls(
+                result.model, normalised[rows], signals[rows],
+                sexes[rows].astype(np.float32), cohort_beats, lead_names,
+                untrained_model=untrained, shuffled_model=shuffled_model,
+                n_steps=args.ig_steps,
+            )
+            print()
+            print(comparison.summary_text())
+            for control in comparison.controls:
+                print(f"\nvs {control}:")
+                print(comparison.difference(control).to_string(index=False))
+            run.save_json("attribution_controls.json", {
+                "summary_text": comparison.summary_text(),
+                "amplitude_correlation": comparison.amplitude_correlation(),
+                "mean_share": {
+                    "trained": comparison.trained.mean_share.tolist(),
+                    **{name: profile.mean_share.tolist()
+                       for name, profile in comparison.controls.items()},
+                },
+                "differences": {
+                    name: comparison.difference(name).to_dict(orient="records")
+                    for name in comparison.controls
+                },
+            })
+            print("=" * 72)
 
         # -- Per-outlier artifacts --------------------------------------------
         print(f"\nwriting artifacts for {len(selected)} age-gap outliers ...")

@@ -332,3 +332,60 @@ def test_delineation_signals_shapes_and_polarity():
     assert wave_signal.shape == envelope.shape == (recording.n_samples,)
     assert (envelope >= 0).all()
     assert wave_signal.min() < 0 < wave_signal.max()
+
+
+def test_p_wave_boundaries_survive_a_noisy_baseline():
+    """The failure that only appeared on real ECGs, reproduced synthetically.
+
+    A P wave is about 0.1 mV tall, so a boundary threshold at 20% of its height
+    is roughly 0.02 mV - comparable to the baseline noise of a real recording.
+    The original boundary search accepted the *first* sample below threshold,
+    which on clean synthetic data terminated correctly and on PTB-XL did not:
+    22% of P-wave onsets ran to the edge of the search window, producing P waves
+    over 200 ms wide (physiologically impossible) and PR intervals pinned at the
+    window ceiling in 16% of recordings. PR feeds the Phase 8 known-feature set,
+    so a corrupted PR inflates the unexplained residual - the direction that
+    manufactures a discovery.
+
+    The fix was a sustained quiet-run requirement plus a physiological cap on
+    P-wave width. This test raises the synthetic noise floor to where the
+    original code failed, and requires the measured P wave to stay physiological.
+    """
+    noisy = dataclasses.replace(
+        PRECISE, noise_mv_sd=0.05, baseline_wander_mv=0.15, p_amplitude_mv=0.12
+    )
+    widths_ms: list[float] = []
+    pinned = 0
+    total = 0
+    search_samples = int(SP.p_search_max_ms / 1000.0 * 500)
+
+    for recording in generate_cohort(noisy, n_recordings=15):
+        for beat in _delineate(recording):
+            if beat.p_wave is None:
+                continue
+            total += 1
+            widths_ms.append(beat.p_wave.duration_samples * 2.0)
+            if beat.p_wave.onset <= beat.qrs.onset - search_samples + 1:
+                pinned += 1
+
+    assert total > 100, "no P waves found; the test would be vacuous"
+    # Nothing may exceed the configured physiological ceiling.
+    assert max(widths_ms) <= SP.p_max_duration_ms + 2.0
+    assert float(np.median(widths_ms)) < 150.0
+    # And onsets must not be running to the edge of the search window.
+    assert pinned / total < 0.02, (
+        f"{pinned / total:.1%} of P-wave onsets are pinned to the search-window "
+        "edge - the boundary walk is not terminating"
+    )
+
+
+def test_p_wave_width_cap_is_enforced():
+    """A tighter cap must actually bind, so the ceiling is real not decorative."""
+    tight = dataclasses.replace(SP, p_max_duration_ms=60.0)
+    widths = [
+        beat.p_wave.duration_samples * 2.0
+        for recording in generate_cohort(PRECISE, n_recordings=5)
+        for beat in _delineate(recording, tight)
+        if beat.p_wave is not None
+    ]
+    assert widths and max(widths) <= 62.0

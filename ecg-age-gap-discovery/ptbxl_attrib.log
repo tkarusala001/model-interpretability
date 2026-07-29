@@ -1,0 +1,25 @@
+PTB-XL at data/ptbxl
+  raw:      21,799 recordings, 18,869 patients
+            293 with the age-300 sentinel (>89 years, dropped)
+            age range 2-89
+  filtered: 21,373 recordings, 18,495 patients
+            age 18-89 (mean 59.8), 48% female
+            repeat patients: 2,878 extra recordings
+  diagnostic superclasses: {'NORM': 9375, 'MI': 5346, 'STTC': 5092, 'CD': 4732, 'HYP': 2588}
+            403 recordings carry no diagnostic superclass
+  official folds: train 17,090, val 2,132, test 2,151
+  loaded 2000/21373 recordings
+  loaded 4000/21373 recordings
+  loaded 6000/21373 recordings
+  loaded 8000/21373 recordings
+  loaded 10000/21373 recordings
+  loaded 12000/21373 recordings
+  loaded 14000/21373 recordings
+  loaded 16000/21373 recordings
+  loaded 18000/21373 recordings
+  loaded 20000/21373 recordings
+run directory: runs/attribution_analysis/20260729T053102Z
+
+using PTB-XL official folds: {'train': 17090, 'val': 2132, 'test': 2151}
+epoch   0  train   9.721  val_mae  14.89  lr 5.00e-04
+epoch   1  train   7.429  val_mae  11.34  lr 1.00e-03

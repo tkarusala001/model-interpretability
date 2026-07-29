@@ -38,10 +38,17 @@ Only the unexplained part is eligible to be called a discovery candidate. Even
 then it is a *candidate*: it means "we have not shown this is already known",
 which is a much weaker statement than "this is new".
 
-For this project the known measurements are the classical ECG intervals —
-heart rate, PR interval, QRS duration, QT and its rate correction — computed by
-signal processing with no learning of any kind, in
-`ecg_discovery/signal_processing/interval_features.py`.
+For this project the known measurements are fifteen classical ECG quantities —
+heart rate and its variability, P duration, PR, QRS duration, QT and QTc, the
+P/R/T amplitudes, ST deviation, QRS and T axes, Sokolow-Lyon voltage, and
+R-wave progression — computed by signal processing with no learning of any
+kind, in `ecg_discovery/signal_processing/interval_features.py`.
+
+The size of that list is not incidental. Expanding it from five to fifteen
+quadrupled the share attributable to existing knowledge on real data, without
+changing the model at all. Anyone applying this framework should treat the
+known-feature set as a variable to be pushed, not a fixed input — see
+"What it found on real data" below.
 
 ## Four things that make this a real test rather than a formality
 
@@ -141,6 +148,40 @@ QRS duration correlates with truth at only r = 0.69 against r = 0.995 at 500 Hz
 of a *genuinely known* effect sitting in the residual. And the model is
 deliberately undersized (326,497 parameters) so its age gap is signal rather
 than memorisation.
+
+## What it found on real data
+
+Applied to PTB-XL (2,151 held-out recordings, official folds), the framework
+returned a negative result — and the *way* it got there is the point.
+
+| | 5 known features | 5 features, different split | **15 known features** |
+|---|---|---|---|
+| attributable to known | 3.9% | 3.5% | **14.6%** |
+| unexplained | 66.8% | 75.8% | **65.0%** |
+| ΔAUC, MI | **+0.015, significant** | +0.007, ns | +0.001, ns |
+| ΔAUC, NORM | +0.008, sig. | +0.012, sig. | +0.002, sig. |
+
+The first column is a publishable positive finding: after Bonferroni correction
+across five diagnostic superclasses, the unexplained ECG age-gap residual
+improved myocardial-infarction detection. Reported on its own, it would read as
+a discovered biomarker.
+
+It survives neither a change of split nor a more complete definition of "already
+known". Between the second and third columns **nothing about the model changed**
+— same architecture, same seed, same 7.32-year test MAE. Only the known-feature
+set grew, from five timing intervals to fifteen measurements including
+amplitude, axis, ST deviation and R-wave progression. That quadrupled the
+attributable share and took the residual's incremental value to +0.001 AUC.
+
+Two conclusions follow, and the second is the more general one:
+
+1. For this model and this dataset, the age gap carries no clinically
+   meaningful information beyond classical ECG measurement.
+2. **The apparent size of a "discovery" is a function of how thoroughly the
+   analyst enumerated what was already known.** That is not a property of the
+   biology. It is a property of the analysis, and it is invisible unless the
+   known-feature set is varied deliberately, which is why doing so should be
+   standard practice rather than an extra.
 
 ## How we know the framework works
 
