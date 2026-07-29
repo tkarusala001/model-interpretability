@@ -791,6 +791,12 @@ class ValidationFrameworkConfig:
     classifier: str = "logistic_regression"
     classifier_max_iter: int = 2000
     standardize_features: bool = True
+    #: Minimum positive cases before a diagnostic superclass is tested at all.
+    #: An AUC computed on a handful of positives is dominated by which fold they
+    #: land in, and a spurious "improvement" on a rare class is exactly the kind
+    #: of result that gets reported as a discovery. Being unable to test a class
+    #: is stated in the output rather than being quietly attempted.
+    min_positives_for_link: int = 20
 
     def __post_init__(self) -> None:
         _require(len(self.known_features) > 0, "known_features must be non-empty")
@@ -820,6 +826,12 @@ class ValidationFrameworkConfig:
         )
         _one_of(self.classifier, ("logistic_regression",), "classifier")
         _positive(self.classifier_max_iter, "classifier_max_iter")
+        _require(
+            self.min_positives_for_link >= self.cv_folds,
+            "min_positives_for_link must be at least cv_folds, or a fold could "
+            f"contain no positive case (got {self.min_positives_for_link} with "
+            f"cv_folds={self.cv_folds})",
+        )
 
 
 # --------------------------------------------------------------------------- #

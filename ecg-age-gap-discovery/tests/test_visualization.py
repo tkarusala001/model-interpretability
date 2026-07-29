@@ -185,3 +185,119 @@ def test_segment_colours_are_defined_for_every_segment():
     from ecg_discovery.interpretability.fiducial_attribution import SEGMENT_NAMES
 
     assert set(SEGMENT_COLOURS) == set(SEGMENT_NAMES)
+
+
+# --------------------------------------------------------------------------- #
+# Phase 8 and 9 result figures
+# --------------------------------------------------------------------------- #
+def _decomposition(seed=0):
+    from ecg_discovery.config import ValidationFrameworkConfig
+    from ecg_discovery.validation.residual_decomposition import decompose_age_gap
+    import pandas as pd
+
+    rng = np.random.default_rng(seed)
+    n = 300
+    qrs = rng.normal(95, 12, n)
+    return decompose_age_gap(
+        0.4 * (qrs - 95) + rng.normal(0, 2, n),
+        pd.DataFrame({"heart_rate_bpm": rng.normal(70, 10, n), "qrs_duration_ms": qrs}),
+        ValidationFrameworkConfig(
+            known_features=("heart_rate_bpm", "qrs_duration_ms"),
+            cv_folds=4, bootstrap_iterations=200, seed=0,
+        ),
+        ages=rng.uniform(30, 85, n), sexes=rng.integers(0, 2, n),
+    )
+
+
+def _link_report(link_strength=2.5):
+    from ecg_discovery.config import ValidationFrameworkConfig
+    from ecg_discovery.discovery_experiments.unexplained_residual_diagnostic_link import (
+        evaluate_diagnostic_link,
+    )
+    import pandas as pd
+
+    rng = np.random.default_rng(0)
+    n = 600
+    qrs = rng.normal(95, 12, n)
+    residual = rng.normal(0, 4, n)
+    logit = -0.4 + 0.05 * (qrs - 95) + link_strength * residual / 4.0
+    abnormal = rng.random(n) < 1 / (1 + np.exp(-logit))
+    names = ("NORM", "MI", "STTC")
+    labels = np.zeros((n, 3), dtype=int)
+    labels[~abnormal, 0] = 1
+    for index in np.flatnonzero(abnormal):
+        labels[index, 1 + rng.integers(0, 2)] = 1
+    return evaluate_diagnostic_link(
+        residual,
+        pd.DataFrame({"heart_rate_bpm": rng.normal(70, 10, n), "qrs_duration_ms": qrs}),
+        labels, names,
+        ValidationFrameworkConfig(
+            known_features=("heart_rate_bpm", "qrs_duration_ms"),
+            cv_folds=5, cv_repeats=2, seed=0,
+        ),
+        ages=rng.uniform(30, 85, n), sexes=rng.integers(0, 2, n),
+    )
+
+
+def test_decomposition_plot_shows_every_explainer(tmp_path):
+    """All explainers appear, so no reader sees only the favourable one."""
+    from ecg_discovery.analysis.visualization import plot_residual_decomposition
+
+    decomposition = _decomposition()
+    path = tmp_path / "decomposition.png"
+    figure = plot_residual_decomposition(decomposition, path=path)
+
+    labels = [label.get_text() for label in figure.axes[0].get_xticklabels()]
+    assert len(labels) == len(decomposition.explainers)
+    legend = [text.get_text() for text in figure.axes[0].get_legend().get_texts()]
+    assert any("unexplained" in entry for entry in legend)
+    assert path.is_file()
+
+
+def test_decomposition_plot_states_the_ceiling_caveat():
+    """The figure must not let 'unexplained' read as 'discovered'."""
+    from ecg_discovery.analysis.visualization import plot_residual_decomposition
+
+    figure = plot_residual_decomposition(_decomposition())
+    caption = " ".join(text.get_text() for text in figure.texts)
+    assert "CEILING" in caption
+
+
+def test_diagnostic_link_plot_marks_the_zero_line(tmp_path):
+    """A difference plot without a zero line hides the null result."""
+    from ecg_discovery.analysis.visualization import plot_diagnostic_link
+
+    report = _link_report()
+    path = tmp_path / "link.png"
+    figure = plot_diagnostic_link(report, path=path)
+
+    assert len(figure.axes) == 2
+    zero_lines = [
+        line for line in figure.axes[1].get_lines()
+        if len(set(np.round(line.get_xdata(), 9))) == 1
+        and abs(line.get_xdata()[0]) < 1e-9
+    ]
+    assert zero_lines, "the difference panel needs a zero reference line"
+    assert path.is_file()
+
+
+def test_diagnostic_link_plot_verdict_matches_the_report():
+    """The caption must say what the numbers say, both ways."""
+    from ecg_discovery.analysis.visualization import plot_diagnostic_link
+
+    positive = plot_diagnostic_link(_link_report(link_strength=2.5))
+    assert "CANDIDATE" in " ".join(text.get_text() for text in positive.texts)
+
+    null = plot_diagnostic_link(_link_report(link_strength=0.0))
+    assert "No superclass improves" in " ".join(text.get_text() for text in null.texts)
+
+
+def test_diagnostic_link_plot_rejects_an_empty_report():
+    from ecg_discovery.analysis.visualization import plot_diagnostic_link
+    from ecg_discovery.discovery_experiments.unexplained_residual_diagnostic_link import (
+        DiagnosticLinkReport,
+    )
+
+    empty = DiagnosticLinkReport({}, {}, 0, "none", 0.02)
+    with pytest.raises(ValueError, match="no evaluated superclasses"):
+        plot_diagnostic_link(empty)

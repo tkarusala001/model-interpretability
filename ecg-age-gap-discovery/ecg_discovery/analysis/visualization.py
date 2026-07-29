@@ -36,6 +36,8 @@ __all__ = [
     "plot_attribution_overlay",
     "plot_segment_summary",
     "plot_age_gap_scatter",
+    "plot_residual_decomposition",
+    "plot_diagnostic_link",
 ]
 
 #: One colour per segment, used consistently in every figure.
@@ -237,6 +239,168 @@ def plot_segment_summary(
     )
     if title:
         figure.suptitle(title, fontsize=10)
+    figure.tight_layout()
+
+    if path is not None:
+        figure.savefig(path, dpi=150, bbox_inches="tight")
+        plt.close(figure)
+    return figure
+
+
+def plot_residual_decomposition(
+    decomposition,
+    title: str | None = None,
+    path: str | Path | None = None,
+):
+    """Where the age gap's variance goes, and which known feature accounts for it.
+
+    Left: the variance split for every explainer, stacked so the three parts add
+    to the whole - demographics, known intervals beyond demographics, and what
+    is left. All explainers are shown side by side, because reporting only the
+    most favourable one is the failure mode this project is built to avoid.
+
+    Right: the out-of-fold variance each known feature explains on its own.
+    Univariate rather than a coefficient plot, because correlated intervals
+    share credit arbitrarily in a joint fit and the resulting bar chart would be
+    an artefact of collinearity rather than a fact about the data.
+
+    Parameters
+    ----------
+    decomposition:
+        A ``DecompositionResult`` from
+        :mod:`ecg_discovery.validation.residual_decomposition`.
+    """
+    explainers = list(decomposition.explainers.values())
+    figure, axes = plt.subplots(1, 2, figsize=(11, 4))
+
+    names = [explainer.model_name.replace("_", "\n") for explainer in explainers]
+    demographics = [explainer.r2_baseline for explainer in explainers]
+    intervals = [explainer.r2_incremental for explainer in explainers]
+    unexplained = [explainer.unexplained_fraction for explainer in explainers]
+
+    axes[0].bar(names, demographics, color="#BBBBBB", label="demographics (age, sex)")
+    axes[0].bar(names, intervals, bottom=demographics, color="#4C72B0",
+                label="known ECG intervals")
+    axes[0].bar(
+        names, unexplained,
+        bottom=[d + i for d, i in zip(demographics, intervals)],
+        color="#C44E52", label="unexplained",
+    )
+    for index, (d, i, u) in enumerate(zip(demographics, intervals, unexplained)):
+        if i > 0.04:
+            axes[0].text(index, d + i / 2, f"{i:.0%}", ha="center", va="center",
+                         color="white", fontsize=9, fontweight="bold")
+        if u > 0.04:
+            axes[0].text(index, d + i + u / 2, f"{u:.0%}", ha="center", va="center",
+                         color="white", fontsize=9, fontweight="bold")
+    axes[0].set_ylim(0, 1)
+    axes[0].set_ylabel("share of age-gap variance")
+    axes[0].set_title("Age-gap variance decomposition", fontsize=10)
+    # Below the axes: the bars fill the full 0-1 range, so any in-plot legend
+    # would sit on top of the data.
+    axes[0].legend(
+        fontsize=8, frameon=False, loc="upper center",
+        bbox_to_anchor=(0.5, -0.10), ncol=3,
+    )
+
+    best = decomposition.most_explanatory
+    ordered = sorted(best.univariate_r2.items(), key=lambda item: item[1])
+    axes[1].barh(
+        [name.replace("_", " ") for name, _ in ordered],
+        [value for _, value in ordered],
+        color="#4C72B0",
+    )
+    axes[1].axvline(0, color="0.4", linewidth=0.8)
+    axes[1].set_xlabel("out-of-fold R² above demographics")
+    axes[1].set_title(f"Each known interval alone ({best.model_name})", fontsize=10)
+
+    for axis in axes:
+        axis.spines[["top", "right"]].set_visible(False)
+
+    figure.text(
+        0.5, -0.16,
+        "The unexplained share is a CEILING on any discovery claim, not evidence "
+        "for one:\nmeasurement noise and a small known-feature set both inflate it.",
+        ha="center", fontsize=8, color="0.4",
+    )
+    if title:
+        figure.suptitle(title, fontsize=11)
+    figure.tight_layout()
+
+    if path is not None:
+        figure.savefig(path, dpi=150, bbox_inches="tight")
+        plt.close(figure)
+    return figure
+
+
+def plot_diagnostic_link(
+    report,
+    title: str | None = None,
+    path: str | Path | None = None,
+):
+    """Baseline against augmented classifier performance, with uncertainty.
+
+    Left: held-out AUC per diagnostic superclass, with and without the
+    unexplained residual added. Right: the paired difference with its interval,
+    which is the quantity the conclusion actually rests on - two overlapping
+    absolute AUCs can still differ reliably when compared fold by fold.
+
+    A zero line is drawn on the difference panel and intervals crossing it are
+    greyed, so a null result reads as a null result at a glance rather than
+    needing the caption to explain it away.
+
+    Parameters
+    ----------
+    report:
+        A ``DiagnosticLinkReport`` from
+        :mod:`ecg_discovery.discovery_experiments.unexplained_residual_diagnostic_link`.
+    """
+    links = list(report.links.values())
+    if not links:
+        raise ValueError("the report contains no evaluated superclasses to plot")
+
+    names = [link.superclass for link in links]
+    positions = np.arange(len(links))
+    figure, axes = plt.subplots(
+        1, 2, figsize=(11, 3.6), gridspec_kw={"width_ratios": [1.25, 1]}
+    )
+
+    width = 0.38
+    axes[0].bar(positions - width / 2, [link.auc_baseline for link in links],
+                width, color="#BBBBBB", label="known intervals")
+    axes[0].bar(positions + width / 2, [link.auc_augmented for link in links],
+                width, color="#4C72B0", label="+ unexplained residual")
+    axes[0].axhline(0.5, color="0.4", linestyle="--", linewidth=0.8)
+    axes[0].text(len(links) - 0.5, 0.505, "chance", fontsize=7, color="0.4", ha="right")
+    axes[0].set_xticks(positions, names)
+    axes[0].set_ylim(0.4, 1.0)
+    axes[0].set_ylabel("held-out AUC")
+    axes[0].set_title("Diagnostic prediction", fontsize=10)
+    axes[0].legend(fontsize=8, frameon=False, loc="upper left")
+
+    for index, link in enumerate(links):
+        low, high = link.delta_auc_ci
+        colour = "#C44E52" if link.improves else "0.6"
+        axes[1].plot([low, high], [index, index], color=colour, linewidth=2)
+        axes[1].plot(link.delta_auc, index, "o", color=colour, markersize=6)
+    axes[1].axvline(0, color="0.3", linestyle="--", linewidth=1)
+    axes[1].set_yticks(positions, names)
+    axes[1].set_xlabel("change in AUC from adding the residual")
+    axes[1].set_title(f"Paired difference ({report.correction})", fontsize=10)
+
+    for axis in axes:
+        axis.spines[["top", "right"]].set_visible(False)
+
+    verdict = (
+        "At least one superclass improves - a CANDIDATE for follow-up, not a "
+        "validated marker."
+        if report.any_improvement
+        else "No superclass improves: the unexplained residual carries no "
+             "independently verifiable signal here."
+    )
+    figure.text(0.5, -0.08, verdict, ha="center", fontsize=8, color="0.35")
+    if title:
+        figure.suptitle(title, fontsize=11)
     figure.tight_layout()
 
     if path is not None:
