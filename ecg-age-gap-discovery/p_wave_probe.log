@@ -1,0 +1,46 @@
+loading PTB-XL ...
+run directory: runs/p_wave_probe/20260729T223923Z
+
+========================================================================
+PROBE 1+2: does the P-wave elevation replicate across independently
+           trained models, at 128 integration steps?
+========================================================================
+  seed 0: MAE 7.32 | P share 0.119 vs amplitude 0.086 | delta +0.0334 [+0.0310, +0.0357]
+  seed 1: MAE 7.46 | P share 0.136 vs amplitude 0.086 | delta +0.0499 [+0.0470, +0.0528]
+  seed 2: MAE 7.40 | P share 0.125 vs amplitude 0.086 | delta +0.0389 [+0.0360, +0.0418]
+
+REPLICATION: P-wave elevation positive with CI excluding zero in 3/3 independently trained models -> HOLDS
+  delta across seeds: mean +0.0407, range [+0.0334, +0.0499]
+
+========================================================================
+PROBE 3: which leads carry the P-wave elevation?
+========================================================================
+lead  p_share_trained  p_share_amplitude     delta    ci_low   ci_high
+ aVF         0.014779           0.006021  0.008757  0.008245  0.009270
+ aVR         0.011201           0.004962  0.006239  0.005945  0.006534
+  V1         0.011372           0.006199  0.005173  0.004766  0.005580
+ aVL         0.009583           0.004918  0.004665  0.004387  0.004943
+   I         0.008995           0.005096  0.003899  0.003679  0.004119
+  II         0.010349           0.006603  0.003746  0.003487  0.004005
+ III         0.009917           0.006611  0.003306  0.003033  0.003578
+  V5         0.010372           0.008960  0.001412  0.001089  0.001734
+  V4         0.010403           0.009454  0.000949  0.000647  0.001250
+  V6         0.007858           0.008485 -0.000627 -0.000942 -0.000311
+  V2         0.006750           0.008526 -0.001776 -0.002002 -0.001551
+  V3         0.007781           0.010144 -0.002363 -0.002641 -0.002085
+
+========================================================================
+PROBE 4: does classical P-wave measurement explain the age gap?
+========================================================================
+measuring intervals at 500 Hz on the attributed subset ...
+  classical P-wave features (P duration, P amplitude, PR) explain 0.7% of the age gap beyond demographics
+    pr_interval_ms       +0.0179
+    p_amplitude_mv       +0.0153
+    p_duration_ms        +0.0126
+
+  correlation of this recording's P-wave ATTENTION with its measured P-wave properties:
+    p_duration_ms        r = +0.473
+    p_amplitude_mv       r = +0.432
+    pr_interval_ms       r = +0.036
+
+artifacts: runs/p_wave_probe/20260729T223923Z/artifacts

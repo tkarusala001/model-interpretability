@@ -86,6 +86,20 @@ Two findings from building it are contributions in their own right:
   descending limb. "The known quantity is unchanged in principle" is not a valid
   argument for novelty.
 
+### 2b. Null controls and a causal test for segment attribution
+
+Three null profiles (signal amplitude, untrained model, shuffled labels) plus an
+occlusion test with width-matched isoelectric controls. Occlusion and ablation
+testing are established techniques; what is offered here is the specific
+question *"does this attribution reflect the model or the amplitude structure of
+the physiological signal?"*, the amplitude null that answers it, and the
+width-matching that makes segment occlusion comparable across structures of
+unequal duration.
+
+We are not aware of this being applied to ECG segment attribution. It has a
+documented catch to its credit: on ground-truth synthetic data, density-based
+attribution pointed at the wrong wave, and only the amplitude null revealed it.
+
 ### 3. Honest reporting of whichever outcome occurs
 
 Phase 9 reports a null result in the same format as a positive one, and the
@@ -97,15 +111,18 @@ branches.
 ## Positioning for Interp4Discovery
 
 - **Topic 1 (methods for unfamiliar modalities):** fiducial-segment attribution.
-- **Topic 2 (case studies surfacing verifiable knowledge):** the decomposition
-  and the diagnostic-link experiment.
+- **Topic 2 (case studies surfacing verifiable knowledge):** the atrial finding -
+  the model causally depends on P-wave information that classical P measurement
+  does not capture, yielding a falsifiable pointer for follow-up.
 - **Topic 3 (validation and epistemology):** the framework itself, the error
   asymmetry, and the measurement-versus-definition distinction.
-- **Topic 4 (failure cases and negative results):** whatever Phase 9 returns on
-  real data, plus the documented failures in
-  [limitations.md](limitations.md) — the T-wave discrimination plateau, the
-  test fixture that structurally cannot detect single-lead bias, and the silent
-  MPS gradient corruption.
+- **Topic 4 (failure cases and negative results):** the MI association that was
+  significant, then failed to replicate on a different split, then collapsed when
+  the known-feature set was completed; density-based attribution pointing at the
+  wrong wave on ground-truth data; and the documented failures in
+  [limitations.md](limitations.md) — the T-wave discrimination plateau, a test
+  fixture that structurally cannot detect single-lead bias, and silent MPS
+  gradient corruption.
 
 ## Bibliographic caution
 

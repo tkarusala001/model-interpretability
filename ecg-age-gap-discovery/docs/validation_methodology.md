@@ -183,6 +183,34 @@ Two conclusions follow, and the second is the more general one:
    known-feature set is varied deliberately, which is why doing so should be
    standard practice rather than an extra.
 
+## Attribution needs its own controls, and its own causal test
+
+The residual decomposition asks whether a *signal* is already known. A parallel
+question applies to attribution: does a segment attribution profile reflect the
+model, or the amplitude structure of the input? Two additions to the framework
+answer it, and both were necessary in practice.
+
+**Null controls.** A profile is compared against three nulls: per-segment signal
+energy, an untrained model of the same architecture, and a model trained on
+permuted labels. The first is the important one - the QRS is the largest
+deflection on an ECG, so gradients there are large whatever the model learned.
+On synthetic data with known ground truth, density-based attribution pointed at
+the *QRS* when the model's information was entirely in the T wave; only the
+amplitude null exposed that.
+
+**Occlusion against a width-matched control.** Attribution shows where a model
+looks, not what it needs; a gradient can be large on a feature the prediction
+would survive losing. Each segment is replaced with its isoelectric baseline and
+compared against the same number of samples blanked from electrically silent
+stretches. Without the width-matched control, a wide segment looks important
+merely for being wide, and any occlusion looks damaging merely for perturbing
+the input.
+
+Applied to PTB-XL, this promoted a correlational observation to a causal one:
+the model's elevated P-wave attribution corresponds to a genuine dependence
+(+0.582 years of MAE beyond control, 3/3 seeds). See
+[attribution_findings.md](attribution_findings.md).
+
 ## How we know the framework works
 
 It is validated against constructed ground truth, in both directions, because a

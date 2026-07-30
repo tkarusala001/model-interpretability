@@ -1,0 +1,29 @@
+loading PTB-XL ...
+run directory: runs/occlusion_test/20260730T021815Z
+
+seed 0: baseline test MAE 7.324; occluding 1200 recordings ...
+    P    MAE  8.152 vs control  7.684 | delta +0.468 [+0.189, +0.747] |   139 samples | per-100 +0.336
+    QRS  MAE 13.378 vs control  7.663 | delta +5.715 [+5.093, +6.338] |   135 samples | per-100 +4.247
+    T    MAE  8.687 vs control  7.927 | delta +0.760 [+0.434, +1.086] |   209 samples | per-100 +0.364
+seed 1: baseline test MAE 7.460; occluding 1200 recordings ...
+    P    MAE  8.803 vs control  8.070 | delta +0.733 [+0.470, +0.996] |   139 samples | per-100 +0.527
+    QRS  MAE 16.455 vs control  7.984 | delta +8.471 [+7.681, +9.261] |   135 samples | per-100 +6.294
+    T    MAE  8.749 vs control  8.245 | delta +0.504 [+0.126, +0.882] |   209 samples | per-100 +0.241
+seed 2: baseline test MAE 7.401; occluding 1200 recordings ...
+    P    MAE  8.317 vs control  7.773 | delta +0.544 [+0.266, +0.822] |   139 samples | per-100 +0.391
+    QRS  MAE 15.518 vs control  7.659 | delta +7.859 [+7.166, +8.551] |   135 samples | per-100 +5.839
+    T    MAE  8.531 vs control  7.943 | delta +0.588 [+0.262, +0.913] |   209 samples | per-100 +0.281
+
+==============================================================================
+SUMMARY: degradation beyond a width-matched isoelectric occlusion
+==============================================================================
+segment  mean_delta  min_delta  max_delta  mean_per_100    samples  n_seeds_positive
+      P    0.581504   0.467955   0.732752      0.417980 139.122500                 3
+    QRS    7.348398   5.715374   8.471255      5.459873 134.589167                 3
+      T    0.617102   0.503968   0.759799      0.295232 209.022500                 3
+
+  P    +0.582 years (+0.418 per 100 samples) - replicates in 3/3 seeds
+  QRS  +7.348 years (+5.460 per 100 samples) - replicates in 3/3 seeds
+  T    +0.617 years (+0.295 per 100 samples) - replicates in 3/3 seeds
+
+artifacts: runs/occlusion_test/20260730T021815Z/artifacts

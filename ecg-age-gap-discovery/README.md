@@ -19,9 +19,14 @@ bash scripts/run_full_pipeline.sh     # every phase, end to end, no data needed
 > cohort with constructed ground truth, **and run end to end on PTB-XL**
 > (21,373 recordings, 18,495 patients, official folds).
 >
-> Still outstanding: the fiducial-attribution analysis (Phase 7) has run on
-> synthetic data only. The null controls it needs are built and tested; the
-> real-data run is pending.
+> Two results, pointing opposite ways, both replicated across three
+> independently trained models:
+> **(a)** the age-gap residual carries no clinically meaningful information
+> beyond classical measurement, and an apparently significant finding dissolved
+> under scrutiny;
+> **(b)** the model nonetheless *causally depends* on atrial information that
+> classical P-wave measurement does not capture — a falsifiable pointer, not a
+> validated marker. See [attribution_findings.md](docs/attribution_findings.md).
 
 ## What is and is not claimed
 
@@ -55,6 +60,12 @@ amplitude, an untrained model, and a model trained on permuted labels — separa
 "what the model attends to" from "where the ECG is big". On synthetic data with
 known ground truth, density-based attribution pointed at the *wrong wave*
 without them.
+
+**2c. A causal occlusion protocol.** Attribution shows where a model looks, not
+what it needs. Each cardiac segment is replaced with its isoelectric baseline
+and compared against a **width-matched isoelectric control**, so degradation
+from "removing this structure" is separated from degradation from "removing this
+many samples".
 
 **3. Reporting whichever outcome occurs.** A null result is reported in the same
 format as a positive one, enforced in code rather than promised in prose.
@@ -118,6 +129,31 @@ definition of "already known" inflates both the unexplained residual *and* the
 apparent value of that residual. Every remaining effect is below the 0.020 AUC
 clinical-relevance threshold fixed before any data was seen.
 
+## The attribution result
+
+The model places more attribution on the **P wave** than the ECG's own amplitude
+structure predicts — **+0.041** share (range +0.033 to +0.050), **3/3 seeds**,
+intervals excluding zero. It departs from an untrained model and from one trained
+on permuted labels. It localises to **aVF, aVR, V1 and the limb leads**, where
+P-wave morphology is clinically read, and is *negative* in V2/V3.
+
+Classical P-wave measurement (P duration, P amplitude, PR) explains **0.7%** of
+the age gap. And occlusion shows the dependence is causal: blanking the P wave
+costs **+0.582 years** of MAE beyond a width-matched isoelectric control, 3/3
+seeds.
+
+> **The claim:** the atrial complex carries age information the model causally
+> depends on, which P duration, P amplitude and PR interval do not capture. The
+> QRS remains the dominant driver by roughly an order of magnitude.
+
+Falsifiable, and that is the point: measure P terminal force, P-wave dispersion,
+notching or P area, and see whether the 0.7% closes.
+
+Caveats travel with it — the gross segment ranking is amplitude-driven
+(r = 0.929), P and T are causally comparable, and the QRS occlusion figure is
+inflated by distribution shift. Full detail and every counter-argument in
+[attribution_findings.md](docs/attribution_findings.md).
+
 ## Results on synthetic data
 
 The machinery is validated separately against constructed ground truth, where
@@ -175,7 +211,8 @@ ecg_discovery/
 | 4 | From-scratch age regressor | done |
 | 5 | Training loop, patient-level splits | done |
 | 6 | Fiducial-segment attribution | done |
-| 7 | Attribution analysis + null controls | code done, **not yet run on PTB-XL** |
+| 7 | Attribution analysis + null controls | done, **run on PTB-XL** |
+| 7b | Replication, per-lead, causal occlusion | done, **run on PTB-XL** |
 | 8 | Residual decomposition | done, **run on PTB-XL** |
 | 9 | Discovery experiment | done, **run on PTB-XL** |
 | 10 | Visualization | done |
@@ -193,6 +230,8 @@ pytest
 
 - [validation_methodology.md](docs/validation_methodology.md) — the framework,
   in full; intended as the paper's methods section
+- [attribution_findings.md](docs/attribution_findings.md) — the atrial result,
+  its five lines of evidence, and everything it does not support
 - [limitations.md](docs/limitations.md) — what is not established, ordered by
   how much it constrains conclusions
 - [related_work.md](docs/related_work.md) — what is prior art and what is

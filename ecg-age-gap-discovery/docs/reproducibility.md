@@ -141,8 +141,32 @@ finding, and reproducible by varying only the flags shown:
 The 5-feature configuration is recoverable by setting `known_features` in
 `configs/validation_framework.yaml` back to heart rate, PR, QRS, QT and QTc.
 
-**Phase 7 (fiducial attribution with null controls) has not been run on
-PTB-XL.** Everything in that phase is synthetic-only.
+### Attribution results on PTB-XL
+
+```bash
+# attribution with all three null controls        (~50 min)
+python scripts/run_attribution_analysis.py --data ptbxl --official-split \
+    --epochs 60 --with-controls --shuffled-control --n-attribution 400
+
+# replication across seeds, per-lead, classical-P test   (~90 min)
+python scripts/probe_p_wave_finding.py --seeds 0 1 2 --epochs 60 --ig-steps 128
+
+# causal occlusion with width-matched controls            (~60 min)
+python scripts/run_occlusion_test.py --seeds 0 1 2 --epochs 60 --n-recordings 1200
+```
+
+| quantity | value |
+|---|---|
+| P-wave attribution above amplitude null | **+0.041** (range +0.033 to +0.050), 3/3 seeds |
+| Amplitude-null correlation | r = 0.929 (segment ranking is amplitude-driven) |
+| Shuffled-label control MAE | 12.96 y vs 13.21 y baseline (learned nothing) |
+| Classical P features explain | **0.7%** of the age gap |
+| P-wave occlusion vs matched control | **+0.582 y** (range +0.468 to +0.733), 3/3 |
+| QRS occlusion vs matched control | +7.348 y - inflated by distribution shift |
+| T-wave occlusion vs matched control | +0.617 y |
+
+Full interpretation and caveats in
+[attribution_findings.md](attribution_findings.md).
 
 ## Configuration
 

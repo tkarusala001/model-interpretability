@@ -28,11 +28,12 @@ feature set would explain more still. See §3.
 
 ### What remains untested on real data
 
-- **Phase 7 fiducial attribution.** The analysis and its null controls are
-  written and unit-tested, but have run on synthetic data only.
 - **Delineation on pathological rhythms.** Atrial fibrillation, bundle branch
   block and paced rhythms get no special handling and are unvalidated. One
-  real-data failure has already been found and fixed (see §6).
+  real-data failure has already been found and fixed (see §6). This matters
+  more than usual for the atrial finding in §1c: absent or disorganised P waves
+  are exactly the case where P-wave delineation is least reliable.
+- **Replication in another cohort.** Everything is PTB-XL, one institution.
 
 ## 1b. The diagnostic association did not replicate — and that is the finding
 
@@ -58,6 +59,30 @@ meaning, and the reporting code flags it automatically.
 meaningful, independently verifiable information beyond what classical ECG
 measurement already provides** — and that an analysis stopping one step earlier
 would have concluded otherwise.
+
+## 1c. Caveats on the atrial finding
+
+The P-wave result ([attribution_findings.md](attribution_findings.md)) survived
+five independent checks. Four things it still does not support:
+
+- **The P wave is not the model's principal feature.** Per sample occluded, the
+  QRS is worth ten times more (+5.46 vs +0.42 years per 100 samples).
+  Attribution's *relative* elevation of the P wave above the amplitude null does
+  not make it important in absolute terms.
+- **P and T are causally comparable** (+0.418 vs +0.295 per 100 samples) and swap
+  order between seeds. The P wave is a real but secondary contributor, not a
+  uniquely important one.
+- **The QRS occlusion figure is inflated by distribution shift.** An ECG with its
+  QRS blanked is wildly out of distribution - seed 1 reached MAE 16.5 years,
+  worse than guessing the mean. The width-matched control handles removing
+  *samples*, not removing the signal's most salient structure. The P-wave figure
+  is the trustworthy one because its perturbation is gentler.
+- **The gross segment ranking is amplitude-driven** (r = 0.929 with the amplitude
+  null). Only the *departures* are the finding.
+
+And the framework's own caveat applies to it: we have shown three classical
+P-wave measurements do not capture the dependence, not that none does. The
+known-feature set is demonstrably incomplete (see §3).
 
 ## 2. Single-lead delineation, and a test fixture that cannot detect the problem
 
