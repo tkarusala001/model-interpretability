@@ -44,9 +44,25 @@ A trained-model profile that matches all three nulls is **not a finding**: it
 says the attribution reflects the signal's own structure. A profile that
 departs from all three is evidence the model is attending to something specific.
 
+Note that :meth:`ControlComparison.summary_text` reports the weaker disjunctive
+form as well - which controls the profile departs from, if any - because a
+partial result is worth seeing. The conjunctive reading above is the one that
+supports a claim; a departure from one control out of three does not.
+
 The comparison is paired per recording - the same recordings, the same
 delineation, differing only in what produced the attribution - so the interval
 on the difference reflects genuine variation rather than between-cohort noise.
+Intervals are Bonferroni-corrected across every segment-by-control test in the
+table, because the verdict is read off the whole table rather than off a cell
+nominated in advance.
+
+**Statistical departure is a weak criterion here, by construction.** The
+interval is on a mean over recordings, so at PTB-XL scale its width shrinks to
+a few thousandths of a share and nearly any systematic difference clears it.
+That is why this module reports effect sizes and the amplitude correlation
+beside the verdict, and why a departure found here is treated as a pointer to
+be tested causally - by occlusion, which asks what the model *needs* rather
+than what it merely attends to - and never as a finding on its own.
 
 This module is offered as a contribution in its own right. The question *"does
 this attribution reflect the model or the amplitude structure of the input?"*
@@ -62,6 +78,7 @@ from typing import Sequence
 import numpy as np
 import pandas as pd
 import torch
+from scipy.stats import norm
 
 from ecg_discovery.interpretability.attribution import integrated_gradients
 from ecg_discovery.interpretability.fiducial_attribution import (
@@ -102,33 +119,84 @@ class ControlComparison:
     segment_names: tuple[str, ...] = SEGMENT_NAMES
     confidence_level: float = 0.95
 
+    @property
+    def n_comparisons(self) -> int:
+        """How many segment-by-control tests the verdict is drawn from.
+
+        Every segment is compared against every control, and the family that
+        matters for multiplicity is all of them together - a claim of the form
+        "the trained profile departs from its nulls" is read off the whole
+        table, not off one cell chosen in advance.
+        """
+        return max(len(self.segment_names) * len(self.controls), 1)
+
+    def _critical_value(self) -> float:
+        """Normal quantile for the Bonferroni-corrected two-sided interval.
+
+        The uncorrected 1.96 that stood here tested four segments against three
+        controls - twelve tests - at a nominal 5% each. Sibling modules in this
+        repository correct for multiplicity carefully, and a headline drawn from
+        this table should be held to the same standard.
+
+        The correction is sized for how :meth:`summary_text` actually reports:
+        it names *any* control the profile departs from on *any* segment, so the
+        family is the whole table and all twelve cells are live. Note that this
+        is deliberately stricter than the reading in the module docstring, where
+        the evidence is departure from **every** control. That conjunctive form
+        is an intersection-union test - requiring all three to clear the bar is
+        already conservative and needs no correction across controls at all - so
+        a profile that departs from all three under this critical value has
+        cleared a higher bar than the interpretation section demands. The
+        stricter of the two is used because it is the one that protects the
+        weaker claim, and the difference costs only interval width.
+        """
+        tail = (1.0 - self.confidence_level) / self.n_comparisons / 2.0
+        return float(norm.ppf(1.0 - tail))
+
     def difference(self, control: str) -> pd.DataFrame:
         """Paired per-segment difference between trained and one control.
 
         Rows with an interval excluding zero are where the trained model's
-        attention genuinely departs from that null.
+        attention genuinely departs from that null. The interval is on the
+        *mean* difference, via the standard error, because the question is
+        whether the average profile differs rather than whether every recording
+        does - and its width is Bonferroni-corrected across every segment and
+        control in the comparison.
+
+        A caution that no interval can express: with several thousand
+        recordings the standard error is small enough that almost any
+        systematic difference clears the threshold, correction or not. Effect
+        size is the thing to read here, and
+        :meth:`amplitude_correlation` is the more informative check of whether
+        the profile says anything about the model at all.
         """
         null = self.controls[control]
-        tail = (1.0 - self.confidence_level) / 2.0
+        critical = self._critical_value()
         rows = []
         for index, segment in enumerate(self.segment_names):
-            delta = self.trained.share[:, index] - null.share[:, index]
-            delta = delta[np.isfinite(delta)]
-            if delta.size == 0:
+            trained_share = self.trained.share[:, index]
+            null_share = null.share[:, index]
+            # One mask drives all three columns. Delineation can fail on a
+            # recording, and averaging each profile over every recording it
+            # happens to be defined on - while differencing only the ones where
+            # both are - lets `delta` disagree with `trained - control` in its
+            # own row, which reads as an arithmetic error in the output table.
+            # `n` is reported because it varies by segment.
+            paired = np.isfinite(trained_share) & np.isfinite(null_share)
+            if paired.sum() < 2:
                 continue
-            low, high = np.percentile(delta, [100 * tail, 100 * (1 - tail)])
-            # Interval on the mean, via the standard error, rather than on the
-            # spread of individual recordings - the question is whether the
-            # average profile differs, not whether every recording does.
-            stderr = delta.std(ddof=1) / np.sqrt(delta.size)
+            delta = trained_share[paired] - null_share[paired]
+            stderr = float(delta.std(ddof=1) / np.sqrt(delta.size))
+            mean = float(delta.mean())
             rows.append({
                 "segment": segment,
-                "trained": float(self.trained.share[:, index].mean()),
-                control: float(null.share[:, index].mean()),
-                "delta": float(delta.mean()),
-                "ci_low": float(delta.mean() - 1.96 * stderr),
-                "ci_high": float(delta.mean() + 1.96 * stderr),
-                "differs": bool(abs(delta.mean()) > 1.96 * stderr),
+                "n": int(paired.sum()),
+                "trained": float(trained_share[paired].mean()),
+                control: float(null_share[paired].mean()),
+                "delta": mean,
+                "ci_low": mean - critical * stderr,
+                "ci_high": mean + critical * stderr,
+                "differs": bool(abs(mean) > critical * stderr),
             })
         return pd.DataFrame(rows)
 
@@ -162,7 +230,14 @@ class ControlComparison:
             lines.append(row)
 
         correlation = self.amplitude_correlation()
-        lines += ["", f"correlation with the amplitude null: r = {correlation:.3f}"]
+        lines += [
+            "",
+            f"correlation with the amplitude null: r = {correlation:.3f}",
+            f"intervals: Bonferroni-corrected across {self.n_comparisons} "
+            f"segment-by-control tests "
+            f"(z = {self._critical_value():.2f}, {len(self.segment_names)} segments "
+            f"x {len(self.controls)} controls)",
+        ]
 
         survived = []
         for name in self.controls:
@@ -174,6 +249,13 @@ class ControlComparison:
         if survived:
             lines.append(
                 "The trained profile departs from: " + "; ".join(survived) + "."
+            )
+            lines.append(
+                f"NOTE: with {self.trained.share.shape[0]} recordings the standard "
+                "error on a mean share is small, so 'differs' is easy to clear and "
+                "says little on its own. Read the effect size in the delta column, "
+                "and treat a departure as a pointer to be tested causally - by "
+                "occlusion - rather than as a finding in itself."
             )
         else:
             lines.append(

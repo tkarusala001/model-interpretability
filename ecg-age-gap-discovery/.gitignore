@@ -8,8 +8,14 @@ dist/
 
 # Data and outputs are never committed: PTB-XL is redistributed from PhysioNet,
 # and run directories are regenerable from config + seed.
-data/
-runs/
-outputs/
+#
+# The leading slash is load-bearing. Without it these patterns match a directory
+# of that name at ANY depth, and an unanchored `data/` silently excluded the
+# whole `ecg_discovery/data/` source package - the synthetic cohort generator,
+# the preprocessing pipeline and the PTB-XL loader - from every commit, while
+# leaving its tests tracked. Anchor anything named after a data directory.
+/data/
+/runs/
+/outputs/
 .DS_Store
 .ipynb_checkpoints/

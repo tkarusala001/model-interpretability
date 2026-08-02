@@ -23,9 +23,41 @@ Two classifiers per diagnostic superclass, differing by exactly one feature::
 
 Both are cross-validated on identical folds, so the difference in their
 held-out AUC is a paired quantity: the same recordings, the same splits, one
-extra column. The interval is computed across folds, so it reflects the
-variability that actually matters - how much the answer moves when the data
-moves - rather than the variability of a single split's point estimate.
+extra column. Each classifier's out-of-fold probability is retained per
+recording, and the two AUCs are computed once over the pooled out-of-fold
+predictions.
+
+THE INTERVAL IS A PAIRED BOOTSTRAP OVER RECORDINGS, NOT A SPREAD OVER FOLDS
+--------------------------------------------------------------------------
+An earlier version of this module took percentiles of the *per-fold* AUC
+deltas and called the result a confidence interval. It is not one, for two
+reasons, and both matter enough to record here so the mistake is not made
+again.
+
+First, with five folds and a Bonferroni-corrected tail of 0.5%, the 0.5th
+percentile of five numbers is just their minimum - so ``improves`` silently
+degraded into "every fold happened to come out positive", which is a sign test
+with no stated error rate, not a 95% interval.
+
+Second, and independent of how many folds there are, fold-level estimates are
+not independent draws: their training sets overlap in roughly ``(k-2)/(k-1)``
+of the data, so their spread estimates neither the standard error of the mean
+nor the sampling variability of the statistic. Averaging correlated estimates
+does not shrink like ``1/sqrt(k)``, and no percentile of them is a calibrated
+interval for anything.
+
+What is used instead is a **paired percentile bootstrap over recordings**. The
+out-of-fold predictions are held fixed and the *recordings* are resampled with
+replacement; both AUCs are recomputed on each resample and their difference
+taken, so the pairing is preserved and the interval reflects the sampling
+variability of the cohort. Where patient identifiers exist the resampling is
+by **patient**, not recording - a cluster bootstrap - because two recordings
+from one patient carry less independent information than two from different
+patients, and resampling rows would understate the width.
+
+The per-fold deltas are still retained and reported as a secondary robustness
+line ("positive in k of n folds"), which is a genuinely useful thing to know.
+It is simply no longer dressed up as an interval.
 
 FOUR WAYS THIS COULD LIE, AND WHAT IS DONE ABOUT THEM
 -----------------------------------------------------
@@ -88,16 +120,23 @@ class SuperclassLink:
     Attributes
     ----------
     delta_auc:
-        Mean held-out AUC of the augmented classifier minus the baseline, over
-        all folds. Positive means the residual helped.
+        Pooled out-of-fold AUC of the augmented classifier minus the baseline.
+        Positive means the residual helped.
     delta_auc_ci:
-        Interval for that difference, from the spread across folds.
+        Paired percentile bootstrap interval for that difference, resampling
+        patients where identifiers exist and recordings otherwise, with the
+        tail already Bonferroni-corrected for the number of superclasses
+        tested. See the module docstring for why this replaced the spread of
+        per-fold deltas.
     improves:
         Whether the interval excludes zero *after* correcting for having tested
         several superclasses.
     n_positive:
         Recordings carrying this superclass. Small counts make an AUC unstable,
         which is reported rather than hidden.
+    fold_deltas:
+        Per-fold AUC differences. Reported as a robustness line - how many folds
+        came out positive - and deliberately *not* used to form the interval.
     """
 
     superclass: str
@@ -115,6 +154,16 @@ class SuperclassLink:
         """Fraction of recordings carrying this superclass."""
         return self.n_positive / self.n_total if self.n_total else float("nan")
 
+    @property
+    def n_folds_positive(self) -> int:
+        """How many cross-validation folds showed a positive difference."""
+        return int((self.fold_deltas > 0).sum())
+
+    @property
+    def n_folds(self) -> int:
+        """How many folds produced a usable AUC for both classifiers."""
+        return int(self.fold_deltas.size)
+
 
 @dataclass
 class DiagnosticLinkReport:
@@ -125,6 +174,11 @@ class DiagnosticLinkReport:
     n_recordings: int
     correction: str
     minimum_meaningful_delta: float
+    #: Whether the bootstrap resampled patients rather than recordings. False
+    #: means no patient identifiers were supplied, so repeated visits - if the
+    #: cohort contains any - are treated as independent and the intervals are
+    #: correspondingly optimistic.
+    clustered_bootstrap: bool = False
 
     @property
     def any_improvement(self) -> bool:
@@ -148,6 +202,8 @@ class DiagnosticLinkReport:
                 "delta_auc": link.delta_auc,
                 "delta_ci_low": link.delta_auc_ci[0],
                 "delta_ci_high": link.delta_auc_ci[1],
+                "n_folds_positive": link.n_folds_positive,
+                "n_folds": link.n_folds,
                 "improves": link.improves,
             }
             for link in self.links.values()
@@ -157,18 +213,27 @@ class DiagnosticLinkReport:
         """State the outcome, in the same format whichever way it went."""
         lines = [
             f"Does the unexplained age-gap residual predict diagnosis beyond known "
-            f"intervals?  ({self.n_recordings} recordings, out-of-fold AUC, "
+            f"intervals?  ({self.n_recordings} recordings, pooled out-of-fold AUC, "
             f"{self.correction} correction across {len(self.links)} superclasses)",
+            "Intervals are a paired bootstrap over "
+            f"{'patients' if self.clustered_bootstrap else 'recordings'}; the "
+            "'folds+' column is a separate robustness check, not the basis of the "
+            "verdict.",
             "",
             f"{'superclass':<12}{'n+':>7}{'baseline':>11}{'augmented':>11}"
-            f"{'delta':>9}{'95% CI':>18}",
+            f"{'delta':>9}{'95% CI':>18}{'folds+':>9}",
         ]
         for link in self.links.values():
             low, high = link.delta_auc_ci
+            interval = (
+                f"[{low:+.3f}, {high:+.3f}]" if np.isfinite(low) and np.isfinite(high)
+                else "not estimable"
+            )
             lines.append(
                 f"{link.superclass:<12}{link.n_positive:>7}{link.auc_baseline:>11.3f}"
                 f"{link.auc_augmented:>11.3f}{link.delta_auc:>+9.3f}"
-                f"{f'[{low:+.3f}, {high:+.3f}]':>18}"
+                f"{interval:>18}"
+                f"{f'{link.n_folds_positive}/{link.n_folds}':>9}"
                 + ("  *" if link.improves else "")
             )
         for name, reason in self.skipped.items():
@@ -236,6 +301,86 @@ def _build_classifier(config: ValidationFrameworkConfig) -> Pipeline:
         LogisticRegression(max_iter=config.classifier_max_iter, random_state=config.seed),
     ))
     return Pipeline(steps)
+
+
+def _paired_bootstrap_delta_auc(
+    target: np.ndarray,
+    baseline_probability: np.ndarray,
+    augmented_probability: np.ndarray,
+    groups: np.ndarray | None,
+    config: ValidationFrameworkConfig,
+    tail: float,
+) -> tuple[float, float]:
+    """Percentile interval for the difference between two paired AUCs.
+
+    The out-of-fold predictions are treated as fixed and the *cohort* is
+    resampled, which is what makes this an interval for the quantity actually
+    claimed: how much the AUC difference would move on another sample of
+    patients from the same population.
+
+    Both AUCs are recomputed on the same resample, so the comparison stays
+    paired and the large shared component of their variance cancels - a
+    difference of two independently bootstrapped AUCs would be far wider than
+    the truth and would hide a real effect.
+
+    Resampling is by patient when identifiers are supplied. Two recordings from
+    one patient are not two independent observations, and resampling rows in
+    that situation produces an interval that is too narrow, which is the
+    direction that manufactures a discovery.
+
+    Parameters
+    ----------
+    tail:
+        One-sided tail probability, already divided by the number of
+        superclasses tested.
+
+    Returns
+    -------
+    tuple[float, float]
+        Lower and upper interval bounds. ``(nan, nan)`` if too few resamples
+        contained both classes for a percentile to mean anything.
+    """
+    rng = np.random.default_rng(config.seed)
+
+    # Row indices grouped by patient, precomputed once. Left as None in the
+    # unclustered case rather than filled with a single all-rows "cluster",
+    # which would look like a valid cluster list while standing for a bootstrap
+    # that resamples nothing.
+    clusters: list[np.ndarray] | None = None
+    if groups is not None:
+        unique_groups, inverse = np.unique(groups, return_inverse=True)
+        order = np.argsort(inverse, kind="stable")
+        boundaries = np.searchsorted(inverse[order], np.arange(unique_groups.size + 1))
+        clusters = [
+            order[boundaries[i] : boundaries[i + 1]] for i in range(unique_groups.size)
+        ]
+
+    scores = np.empty(config.bootstrap_iterations, dtype=np.float64)
+    for iteration in range(config.bootstrap_iterations):
+        if clusters is None:
+            rows = rng.integers(0, target.size, target.size)
+        else:
+            drawn = rng.integers(0, len(clusters), len(clusters))
+            rows = np.concatenate([clusters[unit] for unit in drawn])
+
+        resampled_target = target[rows]
+        # An AUC needs both classes present. A resample that happens to draw
+        # only one is not an extreme value of the statistic, it is an absence of
+        # one, so it is excluded rather than being scored as 0.5.
+        if resampled_target.min() == resampled_target.max():
+            scores[iteration] = np.nan
+            continue
+        scores[iteration] = (
+            roc_auc_score(resampled_target, augmented_probability[rows])
+            - roc_auc_score(resampled_target, baseline_probability[rows])
+        )
+
+    if np.count_nonzero(np.isfinite(scores)) < 0.5 * config.bootstrap_iterations:
+        return (float("nan"), float("nan"))
+    return (
+        float(np.nanpercentile(scores, 100 * tail)),
+        float(np.nanpercentile(scores, 100 * (1.0 - tail))),
+    )
 
 
 def evaluate_diagnostic_link(
@@ -361,39 +506,60 @@ def evaluate_diagnostic_link(
             )
             folds = list(splitter.split(baseline_matrix, target))
 
-        baseline_scores: list[float] = []
-        augmented_scores: list[float] = []
+        # Out-of-fold probabilities are accumulated per recording rather than
+        # scored fold by fold, so the AUCs and the bootstrap below are computed
+        # over the whole cohort. With repeated splitting a recording is held out
+        # more than once; those predictions are averaged.
+        probability_sum = np.zeros((2, target.size), dtype=np.float64)
+        probability_count = np.zeros(target.size, dtype=np.int64)
         deltas: list[float] = []
+
         for train_index, test_index in folds:
             if len(np.unique(target[test_index])) < 2:
                 continue      # a fold with one class has an undefined AUC
             fold_scores = []
-            for matrix in (baseline_matrix, augmented_matrix):
+            for position, matrix in enumerate((baseline_matrix, augmented_matrix)):
                 classifier = _build_classifier(config)
                 classifier.fit(matrix[train_index], target[train_index])
                 probability = classifier.predict_proba(matrix[test_index])[:, 1]
+                probability_sum[position, test_index] += probability
                 fold_scores.append(roc_auc_score(target[test_index], probability))
-            baseline_scores.append(fold_scores[0])
-            augmented_scores.append(fold_scores[1])
+            probability_count[test_index] += 1
             deltas.append(fold_scores[1] - fold_scores[0])
 
-        if len(deltas) < 2:
+        covered = probability_count > 0
+        if len(deltas) < 2 or covered.sum() < minimum * 2:
             skipped[name] = "too few usable folds to estimate an interval"
             continue
 
-        delta_array = np.asarray(deltas)
-        low = float(np.percentile(delta_array, 100 * tail))
-        high = float(np.percentile(delta_array, 100 * (1.0 - tail)))
+        out_of_fold = probability_sum[:, covered] / probability_count[covered]
+        covered_target = target[covered]
+        if covered_target.min() == covered_target.max():
+            skipped[name] = "only one class among the out-of-fold predictions"
+            continue
+
+        auc_baseline = float(roc_auc_score(covered_target, out_of_fold[0]))
+        auc_augmented = float(roc_auc_score(covered_target, out_of_fold[1]))
+        low, high = _paired_bootstrap_delta_auc(
+            covered_target,
+            out_of_fold[0],
+            out_of_fold[1],
+            None if groups is None else groups[covered],
+            config,
+            tail,
+        )
         links[name] = SuperclassLink(
             superclass=name,
             n_positive=n_positive,
             n_total=n_recordings,
-            auc_baseline=float(np.mean(baseline_scores)),
-            auc_augmented=float(np.mean(augmented_scores)),
-            delta_auc=float(delta_array.mean()),
+            auc_baseline=auc_baseline,
+            auc_augmented=auc_augmented,
+            delta_auc=auc_augmented - auc_baseline,
             delta_auc_ci=(low, high),
-            improves=bool(low > 0.0),
-            fold_deltas=delta_array,
+            # NaN bounds mean the interval could not be estimated, which must
+            # never read as an improvement.
+            improves=bool(np.isfinite(low) and low > 0.0),
+            fold_deltas=np.asarray(deltas),
         )
 
     return DiagnosticLinkReport(
@@ -402,4 +568,5 @@ def evaluate_diagnostic_link(
         n_recordings=n_recordings,
         correction=f"Bonferroni x{n_tests}",
         minimum_meaningful_delta=minimum_meaningful_delta,
+        clustered_bootstrap=groups is not None,
     )
