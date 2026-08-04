@@ -1,0 +1,28 @@
+Chapman-Shaoxing-Ningbo at data/chapman
+  raw:      45,152 header files
+  filtered: 42,997 recordings with a usable age and sex,
+            age 18-89 (mean 60.7), 44% female
+  native rate: 500 Hz, 10 s, 12 leads
+  licence: CC BY 4.0 (open access, no credentialing)
+  note: one recording per patient; no repeat visits in this cohort
+
+loading 24000 recordings at 100 Hz (resampled during load) ...
+  loaded 2000/24000 recordings
+  loaded 4000/24000 recordings
+  loaded 6000/24000 recordings
+  loaded 8000/24000 recordings
+  loaded 10000/24000 recordings
+  loaded 12000/24000 recordings
+  loaded 14000/24000 recordings
+  loaded 16000/24000 recordings
+  loaded 18000/24000 recordings
+  loaded 20000/24000 recordings
+  loaded 22000/24000 recordings
+loaded 23999 recordings
+
+run directory: runs/chapman_replication/20260804T022431Z
+
+==============================================================================
+ARM A - FRESH: models trained on Chapman
+==============================================================================
+  seed 0: MAE 7.77 | P attribution +0.0493 [+0.0461, +0.0525] | P occlusion +0.651 [+0.383, +0.918]

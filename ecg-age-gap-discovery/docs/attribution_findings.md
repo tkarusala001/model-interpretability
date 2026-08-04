@@ -16,6 +16,11 @@ test. Classical P-wave measurement explains 0.7% of the model's age gap.
 depends on, which P duration, P amplitude and PR interval do not capture. The
 QRS complex remains the dominant driver by roughly an order of magnitude.
 
+**Replicated on a second continent.** Six independently trained models across
+PTB-XL (Germany) and Chapman-Shaoxing-Ningbo (China) show the effect, with every
+confidence interval excluding zero, and it survives transferring a model between
+the cohorts.
+
 **What to do with it:** measure P terminal force, P-wave dispersion, notching,
 or P-wave area, and test whether they close the 0.7%. That is a falsifiable
 instruction, and it is the entire point of the result.
@@ -109,6 +114,30 @@ network may degrade simply because its input became unfamiliar.
 
 Occluding the P wave costs more than removing an equal number of isoelectric
 samples, in every seed. The dependence is causal, not merely correlational.
+
+### 6. It replicates on an independent cohort
+
+Chapman-Shaoxing-Ningbo: 24,000 recordings from three Chinese hospitals,
+different population, devices and clinical mix, sharing no data with PTB-XL.
+
+| arm | MAE | P attribution | P occlusion |
+|---|---|---|---|
+| fresh, seed 0 | 7.77 | +0.0493 [+0.0461, +0.0525] | +0.651 [+0.383, +0.918] |
+| fresh, seed 1 | 7.76 | +0.0788 [+0.0741, +0.0835] | +1.149 [+0.818, +1.480] |
+| fresh, seed 2 | 7.72 | +0.0486 [+0.0455, +0.0518] | +1.328 [+1.038, +1.618] |
+| transfer | 8.70 | +0.0291 [+0.0269, +0.0313] | +0.510 [+0.040, ...] |
+
+Mean across fresh seeds: attribution **+0.059**, occlusion **+1.043 years** -
+both *larger* than on PTB-XL (+0.041, +0.582). An artefact specific to one
+cohort would be expected to shrink, not grow, and this cohort is
+arrhythmia-enriched, so P waves are harder to detect (94.2% of beats against
+98.0%).
+
+**The transfer arm separates the finding from the model.** Applied unchanged to
+Chinese recordings the PTB-XL model degrades markedly - MAE 7.32 to 8.70,
+R² 0.694 to 0.456 - yet the atrial dependence persists with intervals excluding
+zero. The model generalises poorly; the finding generalises well. That is
+evidence the effect is a property of ECGs rather than of one training set.
 
 ## What this does not support
 

@@ -19,14 +19,17 @@ bash scripts/run_full_pipeline.sh     # every phase, end to end, no data needed
 > cohort with constructed ground truth, **and run end to end on PTB-XL**
 > (21,373 recordings, 18,495 patients, official folds).
 >
-> Two results, pointing opposite ways, both replicated across three
-> independently trained models:
+> Two results, pointing opposite ways, both replicated across independently
+> trained models in **two cohorts on different continents** (PTB-XL, Germany;
+> Chapman-Shaoxing-Ningbo, China):
 > **(a)** the age-gap residual carries no clinically meaningful information
 > beyond classical measurement, and an apparently significant finding dissolved
 > under scrutiny;
 > **(b)** the model nonetheless *causally depends* on atrial information that
-> classical P-wave measurement does not capture — a falsifiable pointer, not a
-> validated marker. See [attribution_findings.md](docs/attribution_findings.md).
+> classical P-wave measurement does not capture — replicated across 6 models,
+> 2 cohorts, and surviving model transfer between them. A falsifiable pointer,
+> not a validated marker.
+> See [attribution_findings.md](docs/attribution_findings.md).
 
 ## What is and is not claimed
 
@@ -146,6 +149,13 @@ seeds.
 > depends on, which P duration, P amplitude and PR interval do not capture. The
 > QRS remains the dominant driver by roughly an order of magnitude.
 
+**Replicated on an independent cohort.** On 24,000 recordings from three Chinese
+hospitals sharing no data with PTB-XL, three freshly trained models give
+attribution **+0.059** and occlusion **+1.043 y** — *larger* than PTB-XL's
++0.041 and +0.582. A PTB-XL model transferred unchanged degrades substantially
+(MAE 7.32 → 8.70) yet **still shows the effect**, so it is a property of ECGs
+rather than of one model or institution.
+
 Falsifiable, and that is the point: measure P terminal force, P-wave dispersion,
 notching or P area, and see whether the 0.7% closes.
 
@@ -173,6 +183,12 @@ by T-wave morphology correctly survives as a large unexplained residual. So the
 them when they are there.
 
 ## Data
+
+Two independent cohorts, both CC BY 4.0 and fully open.
+
+**Chapman-Shaoxing-Ningbo** ([PhysioNet](https://physionet.org/content/ecg-arrhythmia/1.0.0/))
+— 45,152 twelve-lead ECGs from three Chinese hospitals, 10 s at 500 Hz, used as
+the external replication cohort (`bash scripts/download_chapman.sh`).
 
 [PTB-XL](https://physionet.org/content/ptb-xl/) 1.0.3 — 21,799 clinical 12-lead
 ECGs from 18,869 patients, with age, sex and cardiologist-assigned SCP-ECG
@@ -213,6 +229,7 @@ ecg_discovery/
 | 6 | Fiducial-segment attribution | done |
 | 7 | Attribution analysis + null controls | done, **run on PTB-XL** |
 | 7b | Replication, per-lead, causal occlusion | done, **run on PTB-XL** |
+| 7c | External replication, 2nd cohort | done, **Chapman-Shaoxing-Ningbo** |
 | 8 | Residual decomposition | done, **run on PTB-XL** |
 | 9 | Discovery experiment | done, **run on PTB-XL** |
 | 10 | Visualization | done |

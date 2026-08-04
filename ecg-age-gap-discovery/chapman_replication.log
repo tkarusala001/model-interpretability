@@ -1,0 +1,64 @@
+Chapman-Shaoxing-Ningbo at data/chapman
+  raw:      45,152 header files
+  filtered: 42,997 recordings with a usable age and sex,
+            age 18-89 (mean 60.7), 44% female
+  native rate: 500 Hz, 10 s, 12 leads
+  licence: CC BY 4.0 (open access, no credentialing)
+  note: one recording per patient; no repeat visits in this cohort
+
+loading 24000 recordings at 100 Hz (resampled during load) ...
+  loaded 2000/24000 recordings
+  loaded 4000/24000 recordings
+  loaded 6000/24000 recordings
+  loaded 8000/24000 recordings
+  loaded 10000/24000 recordings
+  loaded 12000/24000 recordings
+  loaded 14000/24000 recordings
+  loaded 16000/24000 recordings
+  loaded 18000/24000 recordings
+  loaded 20000/24000 recordings
+  loaded 22000/24000 recordings
+loaded 23999 recordings
+
+run directory: runs/chapman_replication/20260804T032533Z
+
+==============================================================================
+ARM A - FRESH: models trained on Chapman
+==============================================================================
+  seed 1: MAE 7.76 | P attribution +0.0788 [+0.0741, +0.0835] | P occlusion +1.149 [+0.818, +1.480]
+  seed 2: MAE 7.72 | P attribution +0.0486 [+0.0455, +0.0518] | P occlusion +1.328 [+1.038, +1.618]
+
+==============================================================================
+ARM B - TRANSFER: PTB-XL model applied to Chapman unchanged
+==============================================================================
+  transferred MAE on Chapman: 8.70 years (R^2 0.456)
+  P attribution +0.0291 [+0.0269, +0.0313] | P occlusion +0.510
+
+==============================================================================
+DECOMPOSITION on Chapman (500 Hz interval measurement)
+==============================================================================
+Age-gap residual decomposition over 1197 recordings (SD 9.79 years; 3 dropped for unmeasurable intervals).
+Known features: heart_rate_bpm, rr_sd_ms, qrs_duration_ms, pr_interval_ms, p_duration_ms, qt_interval_ms, qtc_bazett_ms, r_amplitude_mv, t_amplitude_mv, p_amplitude_mv, st_deviation_mv, qrs_axis_deg, t_axis_deg, sokolow_lyon_mv, r_progression_lead
+Adjusted for: age, sex
+
+explainer             demographics   + intervals  attributable   unexplained
+linear                      16.9%         34.2%         17.3%         65.8%
+gradient_boosting           17.4%         34.2%         16.8%         65.8%
+
+Headline: known ECG intervals explain 16.8% of the age-gap residual beyond demographics; 65.8% is unexplained (gradient_boosting, out-of-fold).
+The unexplained share is a CANDIDATE for new signal, not evidence of it. Every weakness in this pipeline - measurement noise, a small known-feature set, an under-powered explainer - inflates it.
+
+==============================================================================
+REPLICATION VERDICT
+==============================================================================
+     arm  seed  test_mae  p_attr_delta  p_attr_ci_low  p_occ_delta  p_occ_ci_low  qrs_occ_delta  t_occ_delta  amplitude_r
+   fresh     1  7.762641      0.078767       0.074066     1.149157      0.817871       3.684814     1.117687     0.871526
+   fresh     2  7.720085      0.048638       0.045481     1.327968      1.038314       6.336078     0.894657     0.902589
+transfer    -1  8.703743      0.029112       0.026875     0.510406      0.040047       3.679709     0.907658     0.934111
+
+  P-wave attribution above amplitude null: 2/2 fresh seeds, mean +0.0637
+  P-wave causal occlusion:                 2/2 fresh seeds, mean +1.239 years
+
+  VERDICT: the atrial finding REPLICATES on an independent cohort.
+
+artifacts: runs/chapman_replication/20260804T032533Z/artifacts

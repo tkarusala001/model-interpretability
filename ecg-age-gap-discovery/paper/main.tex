@@ -1,0 +1,508 @@
+\documentclass{article}
+
+% Drop neurips_2026.sty into this directory from the workshop template ZIP.
+% Submission (anonymous) is the default; add [final] for camera-ready.
+\usepackage{neurips_2026}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{xcolor}
+
+\title{Unexplained Variance Is Not Novel Signal:\\
+Validating Interpretability-Derived Discovery in ECG Age Models}
+
+% Anonymous for double-blind review.
+\author{Anonymous Author(s)\\
+Affiliation\\
+Address\\
+\texttt{email}}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Interpretability is increasingly used to argue that a model has discovered
+something. A network predicts a clinical variable, its residual error is found
+to be ``unexplained'' by standard measurements, attribution localises that
+residual to an interpretable structure, and a discovery is claimed. We show this
+inference is unsafe, and give a protocol that makes it testable.
+Training a 12-lead ECG age regressor from scratch on PTB-XL, we find an
+apparently significant association between its age-gap residual and myocardial
+infarction ($+0.015$ AUC, significant after correction) that fails to replicate
+across data splits and vanishes entirely when the set of already-measurable
+quantities is expanded from 5 to 15 --- \emph{with no change to the model}. That
+expansion quadrupled the variance attributable to existing knowledge, from
+3.5\% to 14.6\%. The apparent magnitude of a discovery is therefore partly a
+property of how thoroughly the analyst enumerated prior knowledge.
+Applying the same discipline to attribution, we identify one claim that
+survives: the model causally depends on atrial information that classical
+P-wave measurement does not capture. It replicates across six independently
+trained models in two cohorts on different continents and survives transferring
+a model between them. We report it as a falsifiable pointer, not a validated
+marker.
+\end{abstract}
+
+\section{Introduction}
+
+Machine learning models now match domain experts across many scientific
+settings, and appear to have learned regularities that humans have not
+articulated. Interpretability offers a way to read those regularities back out,
+and in clinical machine learning a standard argument has emerged: take a model's
+residual error, show that it is not explained by established measurements,
+localise it with attribution, and report a discovery.
+
+The argument has a gap. Attribution answers \emph{where the model looked}. It is
+structurally incapable of answering \emph{whether what it saw was already
+known}. A model that has learned nothing more than ``a wider QRS complex means
+an older patient'' --- a relationship cardiology has recorded for decades ---
+produces exactly the same attribution figure as a model that found something
+new. The two are indistinguishable at the level of the visualisation, and the
+distinction is the entire question.
+
+We study this on the ECG age gap: the difference between a model's predicted age
+and a patient's chronological age, widely interpreted as a marker of
+cardiovascular ageing. Predicting age from an ECG is an established task
+\citep{attia2019age} and we claim no novelty for it; the model exists so that its
+errors can be interrogated.
+
+\paragraph{Contributions.}
+\begin{enumerate}\itemsep2pt
+\item A validation protocol separating rediscovery from discovery: regress the
+candidate signal against enumerated prior knowledge, out of fold, adjusting for
+covariates that mechanically induce correlation (\S\ref{sec:protocol}).
+\item Null controls and a causal occlusion test for segment attribution on
+physiological signals, addressing a confound we show can point attribution at
+the wrong anatomical structure (\S\ref{sec:survives}).
+\item An empirical demonstration that a statistically significant finding
+dissolves under both, and a quantification of how much the conclusion depends on
+the analyst rather than the data (\S\ref{sec:dissolves}).
+\item One finding that survives every check, replicated in two cohorts and
+stated as a falsifiable pointer (\S\ref{sec:survives}).
+\end{enumerate}
+
+\section{Setup}
+\label{sec:setup}
+
+We use PTB-XL \citep{wagner2020ptbxl}: 21{,}799 clinical 12-lead ECGs, of which
+21{,}373 remain after restricting to adults aged 18--89. Ages above 89 are
+recorded as the sentinel value 300 for anonymisation; these are dropped rather
+than clipped, since a fabricated age would corrupt both the regression target
+and every residual computed from it. We use the dataset's own stratified folds
+(17{,}090 / 2{,}132 / 2{,}151) and verify that no patient crosses a fold
+boundary rather than assuming it.
+
+The model is a 326{,}497-parameter 1D residual CNN trained from scratch, with no
+pretrained weights anywhere in the pipeline. It reaches a test mean absolute
+error of \textbf{7.32 years} ($R^2 = 0.694$), comparable to published ECG-age
+models. It is deliberately small: an overfitted model's age gap is dominated by
+memorisation noise, which would make every downstream analysis a study of
+nothing.
+
+One design choice changes conclusions and so belongs in the main text.
+Classical intervals are measured at \textbf{500\,Hz} while the model consumes
+100\,Hz input. At 100\,Hz one sample is 10\,ms, and on synthetic data with known
+ground truth, QRS duration measured at 100\,Hz correlates with truth at
+$r = 0.687$ against $r = 0.995$ at 500\,Hz. Since explained variance scales as
+$r^2$, coarse measurement would leave roughly half of a \emph{genuinely known}
+effect sitting in the residual, looking like a discovery.
+
+\section{The protocol}
+\label{sec:protocol}
+
+Regress the candidate signal against everything already measurable and keep only
+the remainder:
+\[
+\text{gap} \sim \text{demographics} \;\rightarrow\; R^2_{\text{base}},
+\qquad
+\text{gap} \sim \text{demographics} + \text{known} \;\rightarrow\; R^2_{\text{full}},
+\]
+\[
+\text{attributable} = R^2_{\text{full}} - R^2_{\text{base}},
+\qquad
+\text{unexplained} = 1 - R^2_{\text{full}}.
+\]
+Only the unexplained part is eligible to be called a discovery candidate, and
+even then it means ``we have not shown this is already known'', which is far
+weaker than ``this is new''. Four components each prevent a specific failure.
+
+\textbf{Demographic adjustment.} An age gap is mechanically anti-correlated with
+age, because regression models pull towards the mean. Known measurements also
+drift with age, so that shared dependence would be credited to them. In a
+constructed case where an interval is a pure function of age and carries no
+extra information, the unadjusted analysis credits it with over 60\% of the gap;
+adjusted, under 10\%.
+
+\textbf{Out-of-fold evaluation, grouped by patient.} In-sample $R^2$ rises with
+model flexibility whether or not a relationship exists. An overfitting
+\emph{baseline} is equally dangerous: several hundred trees fitted to two
+demographic features on $\sim$100 recordings produced an out-of-fold $R^2$ of
+$-31\%$, and subtracting a negative number inflated the attributable share to a
+meaningless 84\%. We floor the baseline at zero --- a model that loses to the
+mean explains nothing, not a negative amount.
+
+\textbf{A rigid and a flexible explainer, both always reported.} A real but
+non-linear dependence on a known measurement, missed by a linear fit, would sit
+in the residual looking exactly like a discovery. Reporting both removes the
+opportunity to select whichever number reads better.
+
+\textbf{Measurements, not definitions.} On synthetic data we construct a T-wave
+morphology change that leaves the true QT interval \emph{exactly} unchanged
+($r = -0.001$ with the latent factor). \emph{Measured} QT nonetheless moves with
+it ($r = +0.330$), because QT is measured by the tangent method, which reads the
+slope of the T wave's descending limb. A change invisible to the \emph{definition}
+of a known quantity can be partly visible to its \emph{measurement}. Only the
+measurement can be regressed out, and only the measurement is what a clinician
+has.
+
+\paragraph{The error asymmetry.} Every weakness in this pipeline pushes the same
+way. Noisy measurement, a thin known-feature set, an explainer too rigid to fit a
+real relationship, and an overfitted model all \emph{shrink} the attributable
+share and \emph{inflate} the unexplained residual. There is no corresponding
+mechanism producing a false negative. A finding of ``fully explained'' is
+therefore strong evidence, while ``largely unexplained'' is weak evidence --- and
+much published inference in this area treats the latter as the stronger signal.
+
+We validate the protocol against constructed ground truth in both directions: on
+a synthetic cohort it correctly attributes a QRS-mediated age effect to known
+features, and correctly leaves a morphology effect invisible to timing in the
+residual (Appendix).
+
+\section{Result 1: the discovery dissolves}
+\label{sec:dissolves}
+
+\begin{table}[t]
+\centering
+\caption{The same model and data analysed three ways, each stricter than the
+last. Column A is a publishable positive finding. It survives neither a change
+of split nor a fuller enumeration of prior knowledge. \textbf{Nothing about the
+model changed between B and C} --- same architecture, seed, and test error.}
+\label{tab:dissolve}
+\small
+\begin{tabular}{lccc}
+\toprule
+& A: 5 features, & B: 5 features, & C: \textbf{15 features}, \\
+& own split & official folds & official folds \\
+\midrule
+Test MAE (years) & 7.53 & 7.32 & 7.32 \\
+Attributable to known & 3.9\% & 3.5\% & \textbf{14.6\%} \\
+Unexplained & 66.8\% & 75.8\% & \textbf{65.0\%} \\
+$\Delta$AUC, myocardial infarction & \textbf{+0.015}$^{*}$ & +0.007 & \textbf{+0.001} \\
+$\Delta$AUC, normal & +0.008$^{*}$ & +0.012$^{*}$ & +0.002$^{*}$ \\
+\bottomrule
+\end{tabular}
+\vspace{2pt}
+\footnotesize $^{*}$interval excludes zero after Bonferroni correction across
+five diagnostic superclasses.
+\end{table}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/fig1_dissolution.pdf}
+\caption{The same model analysed three ways. \textbf{A}: five known features, our
+own patient-level split. \textbf{B}: five features, the dataset's official folds.
+\textbf{C}: fifteen features, official folds. Left: as prior knowledge is
+enumerated more fully the attributable share (blue) quadruples. Right: the
+myocardial-infarction association dies over the same three analyses, falling
+below a relevance threshold fixed before any data was examined. \emph{The model
+is identical in B and C.}}
+\label{fig:dissolution}
+\end{figure}
+
+We ask whether the unexplained residual predicts cardiologist-assigned
+diagnostic superclasses beyond the known measurements, comparing two logistic
+classifiers differing by exactly one feature, on identical folds grouped by
+patient. Table~\ref{tab:dissolve} reports three analyses of the same model.
+
+Column A is a reportable positive result: after correction for testing five
+superclasses, the unexplained age-gap residual improves myocardial infarction
+detection. Reported alone it would read as a discovered biomarker. It does not
+survive a change of data split (B), and it does not survive expanding the
+known-feature set from five timing intervals to fifteen measurements including
+amplitudes, electrical axes, ST deviation and R-wave progression (C).
+
+The mechanism is visible in the table. Between B and C the model is byte-for-byte
+identical; only the analyst's enumeration of prior knowledge improved, and that
+alone quadrupled the attributable share and drove the residual's incremental
+value to $+0.001$ AUC. We fixed a clinical-relevance threshold of 0.020 AUC
+before examining any data; every remaining effect falls below it, and our
+reporting code flags this automatically.
+
+Two conclusions follow. For this model and dataset, the age gap carries no
+clinically meaningful information beyond classical measurement. More generally,
+\textbf{the apparent size of a discovery is a function of how thoroughly prior
+knowledge was enumerated} --- a property of the analysis rather than the biology,
+and invisible unless the known-feature set is deliberately varied.
+
+\section{Result 2: a finding that survives}
+\label{sec:survives}
+
+Attribution requires its own controls. The QRS complex is by far the largest
+deflection on an ECG, so gradients there are large regardless of what the model
+learned. On synthetic data where the model's information was placed
+\emph{entirely} in the T wave, density-based segment attribution nonetheless
+pointed at the QRS; only comparison against an amplitude null exposed this. We
+therefore compare every attribution profile against three nulls: per-segment
+signal energy, an untrained model of the same architecture, and a model trained
+on permuted labels.
+
+\begin{table}[t]
+\centering
+\caption{Segment attribution against three nulls (share of total absolute
+attribution, PTB-XL). The shuffled-label control reached MAE 12.96 years against
+a constant-prediction baseline of 13.21, confirming it learned nothing.}
+\label{tab:nulls}
+\small
+\begin{tabular}{lcccc}
+\toprule
+Segment & Trained & Amplitude & Untrained & Shuffled labels \\
+\midrule
+P wave & \textbf{0.119} & 0.086 & 0.081 & 0.056 \\
+QRS complex & 0.341 & 0.320 & 0.358 & 0.578 \\
+T wave & 0.178 & 0.225 & 0.213 & 0.110 \\
+Isoelectric & 0.362 & 0.369 & 0.348 & 0.256 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The model places more attribution on the \textbf{P wave} --- atrial
+depolarisation --- than any null predicts: $+0.041$ above the amplitude null
+(range $+0.033$ to $+0.050$), in 3/3 independently trained models, every interval
+excluding zero, and unchanged when integration resolution is quadrupled. The
+elevation localises to leads aVF, aVR, V1 and the limb leads, where P-wave
+morphology is clinically assessed, and is \emph{negative} in V2--V3 where the P
+wave is small and the QRS dominates. A uniform smear across all twelve leads
+would have suggested an artefact.
+
+Classical P-wave measurement --- P duration, P amplitude and PR interval ---
+explains \textbf{0.7\%} of the age gap out of fold. Yet the model's per-recording
+P-wave attention tracks those same measurements ($r = 0.47$ and $r = 0.43$), so it
+is genuinely reading the atrial complex while extracting something those three
+numbers do not represent.
+
+\paragraph{Occlusion: needed, not merely observed.} Attribution shows where a
+model looks; a gradient can be large on a feature the prediction would survive
+losing. We replace each segment with its per-lead isoelectric baseline in every
+beat and compare against a \textbf{width-matched isoelectric control}: the same
+number of samples blanked from electrically silent stretches. The control is
+essential, because blanking any part of an ECG perturbs the input and a network
+may degrade simply because its input became unfamiliar.
+
+\begin{table}[t]
+\centering
+\caption{Causal occlusion ($\Delta$ MAE against a width-matched isoelectric
+control) and external replication. Chapman-Shaoxing-Ningbo comprises 24{,}000
+recordings from three Chinese hospitals, sharing no data with PTB-XL. Every
+interval excludes zero.}
+\label{tab:replication}
+\small
+\begin{tabular}{lcc@{\hspace{2em}}lcc}
+\toprule
+\multicolumn{3}{c}{\textbf{Occlusion}} & \multicolumn{3}{c}{\textbf{Chapman replication}} \\
+\cmidrule(r){1-3}\cmidrule(l){4-6}
+Segment & PTB-XL & Chapman & Arm & P attribution & P occlusion \\
+\midrule
+P wave & \textbf{+0.582} & \textbf{+1.043} & fresh, seed 0 & +0.049 & +0.65 \\
+QRS & +7.348$^{\dagger}$ & +5.010$^{\dagger}$ & fresh, seed 1 & +0.079 & +1.15 \\
+T wave & +0.617 & +1.006 & fresh, seed 2 & +0.049 & +1.33 \\
+& & & \textbf{transfer} & +0.029 & +0.51 \\
+\bottomrule
+\end{tabular}
+\vspace{2pt}
+\footnotesize $^{\dagger}$inflated by distribution shift; see limitations.
+\end{table}
+
+Table~\ref{tab:replication} shows the P wave is causally required in 3/3 seeds on
+PTB-XL, and that the whole result replicates on an independent cohort from three
+Chinese hospitals with \emph{larger} effects ($+0.059$ attribution, $+1.043$
+years occlusion). This occurs in an arrhythmia-enriched population where P waves
+are \emph{harder} to detect (94.2\% of beats against 98.0\%), which is the
+opposite of the pattern a cohort-specific artefact would produce.
+
+The transfer arm separates two otherwise confounded things. Applied unchanged to
+Chinese recordings, the PTB-XL model degrades substantially (MAE $7.32 \to 8.70$,
+$R^2\ 0.694 \to 0.456$) --- a real domain shift --- yet the atrial dependence
+persists with intervals excluding zero. \textbf{The model generalises poorly
+while the finding generalises well}, which is evidence that the effect is a
+property of ECGs rather than of one training set.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/fig2_occlusion.pdf}
+\caption{Left: occlusion cost per segment against a width-matched isoelectric
+control, both cohorts. Right: the P-wave effect for every model trained in this
+study --- three per cohort plus the transferred model --- with 95\% intervals.
+All seven clear zero.}
+\label{fig:occlusion}
+\end{figure}
+
+\paragraph{The claim, stated at its actual strength.} The atrial complex carries
+age information that this model causally depends on and that P duration, P
+amplitude and PR interval do not capture. This is falsifiable, and that is its
+purpose: measure P terminal force, P-wave dispersion, notching, or P-wave area,
+and test whether the 0.7\% closes.
+
+\section{Limitations and conclusion}
+
+The QRS complex remains the dominant driver by roughly an order of magnitude per
+sample ($+5.46$ against $+0.42$ years per 100 samples), so attribution's
+\emph{relative} elevation of the P wave does not make it the model's principal
+feature; and P and T are causally comparable, swapping order between seeds. The
+QRS occlusion figure is inflated by distribution shift --- an ECG without QRS
+complexes is far out of distribution, and one seed fell below the mean predictor
+--- so the P-wave figure is the trustworthy one precisely because its
+perturbation is gentler. The gross segment ranking correlates with the amplitude
+null at $r = 0.929$; only the departures are the finding.
+
+We have shown that three classical P-wave measurements do not capture the
+dependence, not that none does, and our own $5 \to 15$ result proves the
+known-feature set is still incomplete. Both cohorts are single-country, neither
+has clinical outcome data, and our analysis covers adults 18--89 only. Occlusion
+establishes that the model needs the information, not that the information is
+biologically causal.
+
+Interpretability tells you where a model looked. Deciding whether that
+constitutes knowledge requires enumerating what was already known --- and the
+answer is sensitive to how well that enumeration is done. We give a protocol,
+demonstrate a finding dissolving under it, and one surviving.
+
+\bibliographystyle{plainnat}
+\begin{thebibliography}{9}
+\small
+\bibitem[Attia et al.(2019)]{attia2019age}
+Z.~I. Attia et al.
+\newblock Age and sex estimation using artificial intelligence from standard
+12-lead ECGs.
+\newblock \emph{Circulation: Arrhythmia and Electrophysiology}, 12(9), 2019.
+
+\bibitem[Lima et al.(2021)]{lima2021ecgage}
+E.~M. Lima et al.
+\newblock Deep neural network-estimated electrocardiographic age as a mortality
+predictor.
+\newblock \emph{Nature Communications}, 12:5117, 2021.
+
+\bibitem[Sundararajan et al.(2017)]{sundararajan2017ig}
+M.~Sundararajan, A.~Taly, and Q.~Yan.
+\newblock Axiomatic attribution for deep networks.
+\newblock In \emph{ICML}, 2017.
+
+\bibitem[Pan and Tompkins(1985)]{pan1985qrs}
+J.~Pan and W.~J. Tompkins.
+\newblock A real-time QRS detection algorithm.
+\newblock \emph{IEEE Transactions on Biomedical Engineering}, 32(3):230--236, 1985.
+
+\bibitem[Wagner et al.(2020)]{wagner2020ptbxl}
+P.~Wagner et al.
+\newblock PTB-XL, a large publicly available electrocardiography dataset.
+\newblock \emph{Scientific Data}, 7:154, 2020.
+
+\bibitem[Zheng et al.(2020)]{zheng2020chapman}
+J.~Zheng et al.
+\newblock A 12-lead electrocardiogram database for arrhythmia research covering
+more than 10,000 patients.
+\newblock \emph{Scientific Data}, 7:48, 2020.
+\end{thebibliography}
+
+\appendix
+\section{Validating the protocol against constructed ground truth}
+\label{app:synthetic}
+
+We generate synthetic 12-lead ECGs with exactly known fiducial points and two
+independent latent age offsets. One drives QRS widening and heart-rate change,
+both classically measurable. The other drives T-wave \emph{skew}: a warped
+raised-cosine that preserves the wave's onset, offset, duration and peak
+amplitude exactly, so no timing interval can detect it by construction. Setting
+either offset's variance to zero produces a cohort where the correct answer is
+known.
+
+The protocol behaves correctly in both directions. Where the age signal runs
+entirely through QRS duration it recovers over 70\% of the explainable ceiling;
+where it runs entirely through T-wave morphology it leaves over 50\% unexplained.
+The ceiling matters: an age gap is the injected signal \emph{plus} the model's own
+prediction error, and no measurement can explain a network's error, so demanding
+100\% would be demanding an explanation for something absent.
+
+\section{Signal-processing accuracy}
+\label{app:signal}
+
+All interval measurement is from-scratch classical signal processing with no
+learned components: a Pan--Tompkins-style R-peak detector
+\citep{pan1985qrs}, heuristic P- and T-wave delineation, and the tangent method
+for T-wave offset.
+
+Against constructed ground truth: R-peak detection reaches sensitivity 1.000 and
+positive predictive value 1.000 with maximum error of one sampling interval at
+both 100\,Hz and 500\,Hz. Measured intervals correlate with truth at
+$r = 0.995$ (QRS duration), $0.985$ (PR) and $0.987$ (QT) at 500\,Hz.
+
+On real recordings all measured intervals fall in published normal ranges in
+both cohorts. P waves are detected in 98.0\% of PTB-XL beats and 94.2\% of
+Chapman beats; the lower rate in the arrhythmia-enriched cohort is expected,
+since atrial fibrillation genuinely lacks organised P waves.
+
+\section{Two failures found only on real data}
+\label{app:failures}
+
+\paragraph{P-wave boundary search.} Our boundary search terminated at the first
+sample falling below 20\% of P-wave height. A real P wave is roughly 0.1\,mV, so
+that threshold is near the baseline noise floor. On clean synthetic data the
+search terminated correctly; on PTB-XL it ran to the edge of the search window
+in 22\% of beats, producing P waves wider than 200\,ms --- physiologically
+impossible --- in 19.5\% of recordings, and PR intervals pinned at the window
+ceiling in 16\%. Since PR is a known feature, this had been inflating the
+unexplained residual. Fixed by requiring a sustained quiet run plus a
+physiological width cap.
+
+\paragraph{Silently zeroed gradients.} On Apple's Metal backend, Integrated
+Gradients returned \emph{exactly zero} for 18 of 20 recordings at one batch size,
+with no error raised and plausible-looking segment summaries. It was caught only
+by checking the completeness axiom \citep{sundararajan2017ig}: relative error
+0.90 against 0.004 on CPU. We now verify completeness on every call.
+
+Both are recorded because they illustrate a general point: synthetic validation
+is necessary but not sufficient, and an attribution method that violates its own
+defining axiom can look entirely normal.
+
+\section{Reproducibility}
+\label{app:repro}
+
+Both datasets are public and CC BY 4.0. The full pipeline runs end to end on
+procedurally generated data with no downloads required, and the test suite
+(350 tests) verifies every ground-truth claim above. Model parameters are
+bit-for-bit determined by the random seed, which is also how the
+no-pretrained-weights claim is checked. Attribution runs on CPU by default for
+the reason in Appendix~\ref{app:failures}.
+
+\section*{Responsible use statement}
+
+This work studies claims that machine-learning models have discovered new
+clinical knowledge, and argues that such claims are systematically easier to
+make than to justify. The societal risk is direct: an unvalidated
+``AI-discovered biomarker'' can redirect research funding and clinical attention,
+and a claim that does not replicate consumes those resources without benefit. We
+demonstrate that failure mode concretely, in our own analysis, where an
+apparently significant association did not survive a change of data split or a
+fuller enumeration of existing knowledge.
+
+The risk our own positive result carries is that it be over-read. We report a
+model's causal dependence on atrial information not captured by three classical
+P-wave measurements. This is a pointer for investigation, \textbf{not a clinical
+finding}: it establishes neither biological causation, nor clinical utility, nor
+that no existing measurement captures the signal, and it must not inform patient
+care. Our mitigations are to state the claim's exact scope in the main text
+rather than an appendix, to report effect sizes alongside significance against a
+threshold fixed before analysis, and to release code sufficient to reproduce or
+refute every number.
+
+Both datasets are fully de-identified, publicly released under CC BY 4.0, and
+used within their licence terms; no new patient data was collected. Both cohorts
+are single-country and the analysis is restricted to adults aged 18--89, so
+nothing here should be assumed to transfer to paediatric populations or to other
+health systems.
+
+\end{document}

@@ -168,6 +168,43 @@ python scripts/run_occlusion_test.py --seeds 0 1 2 --epochs 60 --n-recordings 12
 Full interpretation and caveats in
 [attribution_findings.md](attribution_findings.md).
 
+## External replication cohort
+
+```bash
+bash scripts/download_chapman.sh          # or scripts/download_chapman.py for a subset
+python -c "from ecg_discovery.data.chapman_dataset import summarise_chapman; \
+           print(summarise_chapman('data/chapman'))"
+python scripts/run_chapman_replication.py --limit 24000 --seeds 0 1 2 \
+    --epochs 60 --ig-steps 128 \
+    --ptbxl-checkpoint runs/attribution_analysis/<ts>/artifacts/model.pt
+```
+
+Chapman-Shaoxing-Ningbo is **CC BY 4.0**, fully open (verified 2026-07-30).
+Note: PhysioNet's `get-zip` endpoint was measured at **4.4 kB/s** (6.5 days for
+2.5 GB); the browser download or the per-file endpoint used by
+`download_chapman.py` are far faster.
+
+Verified summary:
+
+```
+  raw:      45,152 header files
+  filtered: 42,997 recordings with a usable age and sex,
+            age 18-89 (mean 60.7), 44% female
+  native rate: 500 Hz, 10 s, 12 leads
+  note: one recording per patient; no repeat visits
+```
+
+| quantity | PTB-XL | Chapman |
+|---|---|---|
+| model MAE | 7.32 y | 7.72-7.77 y |
+| P attribution above amplitude null | +0.041 | **+0.059** |
+| P occlusion vs matched control | +0.582 y | **+1.043 y** |
+| seeds with CI excluding zero | 3/3 | 3/3 |
+
+Transfer arm (PTB-XL model applied unchanged to Chapman): MAE 8.70, R² 0.456 —
+substantial domain shift — yet P attribution +0.0291 [+0.0269, +0.0313] and
+P occlusion +0.510 both remain significant.
+
 ## Configuration
 
 All settings live in `configs/*.yaml` and are parsed into validated frozen

@@ -33,7 +33,10 @@ feature set would explain more still. See §3.
   real-data failure has already been found and fixed (see §6). This matters
   more than usual for the atrial finding in §1c: absent or disorganised P waves
   are exactly the case where P-wave delineation is least reliable.
-- **Replication in another cohort.** Everything is PTB-XL, one institution.
+- ~~Replication in another cohort~~ — **done**: the atrial finding replicates on
+  Chapman-Shaoxing-Ningbo (3 Chinese hospitals) across three fresh models and
+  under transfer. Both cohorts remain single-country, and neither has clinical
+  outcome data.
 
 ## 1b. The diagnostic association did not replicate — and that is the finding
 
