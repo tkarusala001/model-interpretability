@@ -192,13 +192,15 @@ model changed between B and C} --- same architecture, seed, and test error.}
 Test MAE (years) & 7.53 & 7.32 & 7.32 \\
 Attributable to known & 3.9\% & 3.5\% & \textbf{14.6\%} \\
 Unexplained & 66.8\% & 75.8\% & \textbf{65.0\%} \\
-$\Delta$AUC, myocardial infarction & \textbf{+0.015}$^{*}$ & +0.007 & \textbf{+0.001} \\
-$\Delta$AUC, normal & +0.008$^{*}$ & +0.012$^{*}$ & +0.002$^{*}$ \\
+$\Delta$AUC, myocardial infarction & \textbf{+0.015}$^{*}$ & +0.006 & \textbf{+0.001} \\
+$\Delta$AUC, ST/T change & +0.004 & +0.017$^{*}$ & +0.001 \\
+$\Delta$AUC, normal & +0.007$^{*}$ & +0.011$^{*}$ & +0.002 \\
 \bottomrule
 \end{tabular}
 \vspace{2pt}
 \footnotesize $^{*}$interval excludes zero after Bonferroni correction across
-five diagnostic superclasses.
+five diagnostic superclasses. Intervals are a paired percentile bootstrap
+resampling patients, so recordings from one patient move together.
 \end{table}
 
 \begin{figure}[t]
@@ -226,11 +228,20 @@ survive a change of data split (B), and it does not survive expanding the
 known-feature set from five timing intervals to fifteen measurements including
 amplitudes, electrical axes, ST deviation and R-wave progression (C).
 
+Changing the split does not merely weaken the finding, it relocates it. In B the
+infarction association falls below significance while a different superclass,
+ST/T change, rises above it at comparable magnitude. An analyst who had happened
+to run B first would have reported a different discovery with the same
+confidence, and neither association survives C. What moves between A and B is
+not the biology and not the model, but which of five correlated labels the
+residual happens to track in one particular partition of patients.
+
 The mechanism is visible in the table. Between B and C the model is byte-for-byte
 identical; only the analyst's enumeration of prior knowledge improved, and that
 alone quadrupled the attributable share and drove the residual's incremental
-value to $+0.001$ AUC. We fixed a clinical-relevance threshold of 0.020 AUC
-before examining any data; every remaining effect falls below it, and our
+value to $+0.001$ AUC. Under C no superclass retains a significant association.
+We fixed a clinical-relevance threshold of 0.020 AUC before examining any data;
+every effect in the table falls below it even where significant, and our
 reporting code flags this automatically.
 
 Two conclusions follow. For this model and dataset, the age gap carries no
@@ -467,6 +478,46 @@ by checking the completeness axiom \citep{sundararajan2017ig}: relative error
 Both are recorded because they illustrate a general point: synthetic validation
 is necessary but not sufficient, and an attribution method that violates its own
 defining axiom can look entirely normal.
+
+\section{Inference procedure for the diagnostic link}
+\label{app:inference}
+
+For each superclass we fit two $\ell_2$-regularised logistic classifiers on
+identical patient-grouped folds, differing by exactly one feature: the
+unexplained age-gap residual. Both are given age and sex, so the comparison is
+incremental over demographics as well as over the known measurements. We pool
+out-of-fold predictions before scoring, rather than averaging per-fold AUCs,
+because superclass prevalence varies across folds.
+
+Confidence intervals come from a paired percentile bootstrap over the pooled
+out-of-fold predictions: each replicate resamples \emph{patients} with
+replacement and carries all of a patient's recordings together, then recomputes
+both AUCs and their difference on the same resample. Resampling patients rather
+than recordings matters because PTB-XL contains repeated recordings of the same
+individual, and treating them as independent would understate the variance. The
+paired construction matters because the two classifiers are scored on identical
+data and their AUCs are strongly correlated; the difference is far better
+determined than either endpoint. We correct for testing five superclasses by
+widening each interval to the Bonferroni-adjusted level.
+
+We record an earlier error here because it bears on how such intervals should be
+read. A previous version of this analysis formed its interval from percentiles
+of the five \emph{per-fold} deltas. That is not a confidence interval. With five
+folds, the Bonferroni-corrected lower tail is simply the minimum of five
+numbers, so the significance flag had silently degraded into ``every fold came
+out positive'' --- a sign test with no stated error rate --- and fold estimates
+are not independent draws in any case, since their training sets overlap.
+
+Correcting it changed two entries of Table~\ref{tab:dissolve}, in opposite
+directions: the residual's association with the \emph{normal} class under
+configuration C lost significance, and its association with ST/T change under
+configuration B gained it. The old rule was not conservative or liberal but
+simply uncalibrated, and a rule that errs in both directions cannot be diagnosed
+by checking whether its answers look reasonable. We note that the paper's own
+thesis applies to the paper: the apparent strength of a finding depends on
+analysis choices that stay invisible until deliberately varied, and the
+significance machinery is as susceptible to this as the enumeration of prior
+knowledge is.
 
 \section{Reproducibility}
 \label{app:repro}

@@ -45,8 +45,12 @@ def figure_1_dissolution() -> None:
     demographics = np.array([29.3, 20.7, 20.4])
     intervals = np.array([3.9, 3.5, 14.6])
     unexplained = np.array([66.8, 75.8, 65.0])
-    mi_delta = np.array([0.015, 0.007, 0.001])
+    # Two superclasses, because the finding does not simply shrink across the
+    # three analyses - it moves from one label to another and only then dies.
+    mi_delta = np.array([0.0155, 0.0062, 0.0010])
     mi_significant = [True, False, False]
+    sttc_delta = np.array([0.0040, 0.0165, 0.0006])
+    sttc_significant = [False, True, False]
 
     figure, axes = plt.subplots(1, 2, figsize=(6.6, 2.6),
                                 gridspec_kw={"width_ratios": [1.3, 1]})
@@ -68,19 +72,32 @@ def figure_1_dissolution() -> None:
     axes[0].set_title("Where the age gap goes", loc="left")
     handles, legend_labels = axes[0].get_legend_handles_labels()
 
-    colours = [RED if s else GREY for s in mi_significant]
-    axes[1].bar(x, mi_delta, color=colours, width=0.55)
+    # Significance is carried by saturation, not hue, so the two superclasses
+    # stay distinguishable in greyscale print.
+    width = 0.34
+    for offset, delta, significant, colour, name in (
+        (-width / 2, mi_delta, mi_significant, RED, "infarction"),
+        (+width / 2, sttc_delta, sttc_significant, PURPLE, "ST/T change"),
+    ):
+        axes[1].bar(x + offset, delta, width=width, label=name,
+                    color=[colour if s else "white" for s in significant],
+                    edgecolor=colour, linewidth=1.0)
+        for i, value in enumerate(delta):
+            if significant[i]:
+                axes[1].text(i + offset, value + 0.0006, "*", ha="center",
+                             fontsize=9, color=colour, fontweight="bold")
     axes[1].axhline(0.020, color="0.3", linestyle="--", linewidth=0.9)
     axes[1].text(2.45, 0.0206, "pre-registered\nrelevance threshold", fontsize=6.2,
                  color="0.3", ha="right", va="bottom")
     axes[1].set_xticks(x, ["A", "B", "C"])
     axes[1].set_ylim(0, 0.027)
-    axes[1].set_ylabel(r"$\Delta$AUC, myocardial infarction")
-    axes[1].set_title("The effect dies", loc="left")
-    axes[1].text(0, 0.0157, "significant", ha="center", fontsize=6.5, color=RED)
-    for i in (1, 2):
-        axes[1].text(i, mi_delta[i] + 0.0009, "n.s.", ha="center", fontsize=6.5,
-                     color="0.45")
+    axes[1].set_ylabel(r"$\Delta$AUC over known measurements")
+    axes[1].set_title("The effect moves, then dies", loc="left")
+    axes[1].legend(loc="upper left", frameon=False, fontsize=6.2,
+                   handlelength=1.1, borderpad=0.1, labelspacing=0.25)
+    axes[1].text(1, -0.17, "filled = significant after correction",
+                 transform=axes[1].get_xaxis_transform(), ha="center",
+                 fontsize=5.8, color="0.45")
 
     figure.legend(handles, legend_labels, loc="lower center", ncol=3,
                   frameon=False, bbox_to_anchor=(0.5, -0.06))
