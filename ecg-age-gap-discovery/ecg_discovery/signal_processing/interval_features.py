@@ -99,6 +99,9 @@ import numpy as np
 import pandas as pd
 
 from ecg_discovery.config import SignalProcessingConfig
+from ecg_discovery.signal_processing.atrial_features import (
+    ATRIAL_FEATURE_NAMES, atrial_features,
+)
 from ecg_discovery.signal_processing.qrs_detection import detect_r_peaks
 from ecg_discovery.signal_processing.wave_delineation import (
     BeatDelineation,
@@ -134,6 +137,10 @@ INTERVAL_FEATURE_NAMES: tuple[str, ...] = (
     "t_axis_deg",
     "sokolow_lyon_mv",
     "r_progression_lead",
+    # Extended atrial measurement. Separated because these exist to test our own
+    # positive result against a fuller enumeration of what cardiology already
+    # reads from the P wave; see ``atrial_features``.
+    *ATRIAL_FEATURE_NAMES,
 )
 
 
@@ -176,6 +183,11 @@ class IntervalFeatures:
     sokolow_lyon_mv: float
     r_progression_lead: float
 
+    p_terminal_force_v1_mv_ms: float
+    p_area_ii_mv_ms: float
+    p_notch_depth_mv: float
+    p_dispersion_ms: float
+
     n_beats: int
     p_detection_rate: float
     t_detection_rate: float
@@ -214,6 +226,8 @@ class IntervalFeatures:
             r_amplitude_mv=nan, t_amplitude_mv=nan, p_amplitude_mv=nan,
             st_deviation_mv=nan, qrs_axis_deg=nan, t_axis_deg=nan,
             sokolow_lyon_mv=nan, r_progression_lead=nan,
+            p_terminal_force_v1_mv_ms=nan, p_area_ii_mv_ms=nan,
+            p_notch_depth_mv=nan, p_dispersion_ms=nan,
             n_beats=0, p_detection_rate=0.0, t_detection_rate=0.0,
         )
 
@@ -374,6 +388,7 @@ def compute_interval_features(
     config: SignalProcessingConfig | None = None,
     lead_names: Sequence[str] | None = None,
     beats: Sequence[BeatDelineation] | None = None,
+    include_dispersion: bool = True,
 ) -> IntervalFeatures:
     """Measure the classical ECG intervals for one recording.
 
@@ -394,6 +409,9 @@ def compute_interval_features(
     beats:
         Pre-computed delineation, to avoid repeating that work when the caller
         already has it.
+    include_dispersion:
+        Whether to measure P-wave dispersion, which costs twelve extra boundary
+        searches per beat. Set False when the feature will not be used.
 
     Returns
     -------
@@ -463,9 +481,13 @@ def compute_interval_features(
     else:
         qtc_bazett = qtc_fridericia = float("nan")
 
+    resolved_leads = lead_names or _default_lead_names(signal_array)
     amplitudes = _amplitude_features(
-        signal_array, beats, lead_names or _default_lead_names(signal_array),
-        sampling_rate_hz, config,
+        signal_array, beats, resolved_leads, sampling_rate_hz, config,
+    )
+    atrial = atrial_features(
+        signal_array, beats, resolved_leads, sampling_rate_hz, config,
+        include_dispersion=include_dispersion,
     )
 
     return IntervalFeatures(
@@ -479,6 +501,7 @@ def compute_interval_features(
         qtc_bazett_ms=qtc_bazett,
         qtc_fridericia_ms=qtc_fridericia,
         **amplitudes,
+        **atrial,
         n_beats=len(beats),
         p_detection_rate=n_with_p / len(beats),
         t_detection_rate=n_with_t / len(beats),
@@ -500,6 +523,7 @@ def interval_features_table(
     config: SignalProcessingConfig | None = None,
     lead_names: Sequence[str] | None = None,
     record_ids: Sequence[str] | None = None,
+    include_dispersion: bool = True,
 ) -> pd.DataFrame:
     """Measure intervals for a batch of recordings.
 
@@ -530,7 +554,8 @@ def interval_features_table(
 
     rows = [
         compute_interval_features(
-            signals[i], sampling_rate_hz, config, lead_names
+            signals[i], sampling_rate_hz, config, lead_names,
+            include_dispersion=include_dispersion,
         ).as_dict()
         for i in range(signals.shape[0])
     ]

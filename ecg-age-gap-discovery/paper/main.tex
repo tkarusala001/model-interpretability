@@ -44,8 +44,10 @@ Applying the same discipline to attribution, we identify one claim that
 survives: the model causally depends on atrial information that classical
 P-wave measurement does not capture. It replicates across six independently
 trained models in two cohorts on different continents and survives transferring
-a model between them. We report it as a falsifiable pointer, not a validated
-marker.
+a model between them. We then turn the protocol on this claim as well, adding the
+further atrial measurements cardiology reads --- terminal force, P-wave area,
+notching --- and it narrows without closing, leaving three quarters of the age
+gap unexplained. We report it as a falsifiable pointer, not a validated marker.
 \end{abstract}
 
 \section{Introduction}
@@ -82,8 +84,10 @@ the wrong anatomical structure (\S\ref{sec:survives}).
 \item An empirical demonstration that a statistically significant finding
 dissolves under both, and a quantification of how much the conclusion depends on
 the analyst rather than the data (\S\ref{sec:dissolves}).
-\item One finding that survives every check, replicated in two cohorts and
-stated as a falsifiable pointer (\S\ref{sec:survives}).
+\item One finding that survives every check, replicated in two cohorts, and then
+subjected to the same enumeration test we use to dissolve the first --- including
+a measurement we report as unmeasurable, with the noise floor that shows it
+(\S\ref{sec:survives}).
 \end{enumerate}
 
 \section{Setup}
@@ -228,13 +232,10 @@ survive a change of data split (B), and it does not survive expanding the
 known-feature set from five timing intervals to fifteen measurements including
 amplitudes, electrical axes, ST deviation and R-wave progression (C).
 
-Changing the split does not merely weaken the finding, it relocates it. In B the
-infarction association falls below significance while a different superclass,
-ST/T change, rises above it at comparable magnitude. An analyst who had happened
-to run B first would have reported a different discovery with the same
-confidence, and neither association survives C. What moves between A and B is
-not the biology and not the model, but which of five correlated labels the
-residual happens to track in one particular partition of patients.
+Changing the split does not merely weaken the finding, it relocates it: in B the
+infarction association falls below significance while ST/T change rises above it
+at comparable magnitude. An analyst who ran B first would have reported a
+different discovery with the same confidence, and neither survives C.
 
 The mechanism is visible in the table. Between B and C the model is byte-for-byte
 identical; only the analyst's enumeration of prior knowledge improved, and that
@@ -262,24 +263,9 @@ therefore compare every attribution profile against three nulls: per-segment
 signal energy, an untrained model of the same architecture, and a model trained
 on permuted labels.
 
-\begin{table}[t]
-\centering
-\caption{Segment attribution against three nulls (share of total absolute
-attribution, PTB-XL). The shuffled-label control reached MAE 12.96 years against
-a constant-prediction baseline of 13.21, confirming it learned nothing.}
-\label{tab:nulls}
-\small
-\begin{tabular}{lcccc}
-\toprule
-Segment & Trained & Amplitude & Untrained & Shuffled labels \\
-\midrule
-P wave & \textbf{0.119} & 0.086 & 0.081 & 0.056 \\
-QRS complex & 0.341 & 0.320 & 0.358 & 0.578 \\
-T wave & 0.178 & 0.225 & 0.213 & 0.110 \\
-Isoelectric & 0.362 & 0.369 & 0.348 & 0.256 \\
-\bottomrule
-\end{tabular}
-\end{table}
+The full four-segment profile against each null is given in
+Appendix~\ref{app:nulls}; the shuffled-label control reached MAE 12.96 years
+against a constant-prediction baseline of 13.21, confirming it learned nothing.
 
 The model places more attribution on the \textbf{P wave} --- atrial
 depolarisation --- than any null predicts: $+0.041$ above the amplitude null
@@ -290,11 +276,58 @@ morphology is clinically assessed, and is \emph{negative} in V2--V3 where the P
 wave is small and the QRS dominates. A uniform smear across all twelve leads
 would have suggested an artefact.
 
-Classical P-wave measurement --- P duration, P amplitude and PR interval ---
-explains \textbf{0.7\%} of the age gap out of fold. Yet the model's per-recording
-P-wave attention tracks those same measurements ($r = 0.47$ and $r = 0.43$), so it
-is genuinely reading the atrial complex while extracting something those three
+\paragraph{Enumerating the atrial complex properly.} Result 1 says the size of a
+discovery depends on how well prior knowledge was enumerated. That binds this
+result too, so we applied it here rather than leaving it as future work.
+Cardiology reads more from the P wave than duration, amplitude and PR interval:
+we added \textbf{P terminal force in V1} (the Morris index of left atrial
+abnormality), \textbf{P-wave area} and \textbf{P-wave notching}, all measured by
+the same from-scratch signal processing. Table~\ref{tab:atrial} reports the
+result. The attributable share rises from 2.5\% to 3.4\% --- a real movement,
+positive in 8/8 explainer seeds when paired --- and \textbf{76\% of the age gap
+remains unexplained}. The claim survives a fuller enumeration, weakened.
+
+\begin{table}[t]
+\centering
+\caption{Our own surviving claim, tested against the enumeration the earlier
+version of this paper listed as future work. Shares are means over eight
+explainer seeds ($\pm$ SD); the delta is paired on seed. P-wave dispersion is
+reported separately because it could not be measured, not because it was
+skipped.}
+\label{tab:atrial}
+\small
+\begin{tabular}{lcc}
+\toprule
+Known atrial measurements & Attributable & Unexplained \\
+\midrule
+P duration, P amplitude, PR interval & 2.5\% $\pm$ 0.4 & 77\% \\
+\quad + terminal force, area, notching & \textbf{3.4\%} $\pm$ 0.3 & \textbf{76\%} \\
+\midrule
+\multicolumn{3}{l}{\footnotesize paired change $+0.8$ pp, positive in 8/8 seeds}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Notably, P-wave \emph{area} is the strongest single atrial predictor of the age
+gap ($r^2 = 0.026$), ahead of P amplitude (0.021): the three-measurement set used
+previously was missing its best member. Notching contributes nothing, being
+present in only 18\% of recordings. The
+model's P-wave attention still tracks the classical measurements ($r = 0.47$ and
+$r = 0.43$), so it is reading the atrial complex while extracting something those
 numbers do not represent.
+
+\paragraph{One measurement we could not make.} P-wave dispersion --- the spread of
+P duration across the twelve leads --- needs P onset and offset found
+independently in each lead rather than read from one window. We implemented it,
+then measured its reliability against a cohort whose true dispersion is
+\emph{zero} by construction, every lead being a fixed multiple of one shared P
+component. There our per-lead delineation reports a median of \textbf{86\,ms}
+where the truth is 0; on real PTB-XL it reports 80\,ms (SD 22\,ms). What we
+measure on real data is thus indistinguishable from what we measure when the
+answer is zero, and the noise floor alone exceeds the clinical range of the
+quantity (20--50\,ms). We therefore report dispersion as \emph{unmeasurable
+here}, not as a feature that failed to explain anything: an unreliable
+measurement cannot shrink a residual, so its failure to do so is not evidence.
 
 \paragraph{Occlusion: needed, not merely observed.} Attribution shows where a
 model looks; a gradient can be large on a feature the prediction would survive
@@ -353,10 +386,14 @@ All seven clear zero.}
 \end{figure}
 
 \paragraph{The claim, stated at its actual strength.} The atrial complex carries
-age information that this model causally depends on and that P duration, P
-amplitude and PR interval do not capture. This is falsifiable, and that is its
-purpose: measure P terminal force, P-wave dispersion, notching, or P-wave area,
-and test whether the 0.7\% closes.
+age information that this model causally depends on and that six classical
+atrial measurements --- P duration, P amplitude, PR interval, terminal force,
+area and notching --- do not capture. We stated the claim as falsifiable and then
+ran the falsification ourselves rather than leaving it to a reader. It narrowed
+the claim without closing it. This is a candidate that has survived one serious
+attempt at dissolution by the same instrument that dissolved the finding in
+Section~\ref{sec:dissolves}; the next attempt needs per-lead delineation good
+enough to measure dispersion, which ours is not.
 
 \section{Limitations and conclusion}
 
@@ -370,10 +407,15 @@ complexes is far out of distribution, and one seed fell below the mean predictor
 perturbation is gentler. The gross segment ranking correlates with the amplitude
 null at $r = 0.929$; only the departures are the finding.
 
-We have shown that three classical P-wave measurements do not capture the
-dependence, not that none does, and our own $5 \to 15$ result proves the
-known-feature set is still incomplete. Both cohorts are single-country, neither
-has clinical outcome data, and our analysis covers adults 18--89 only. Occlusion
+We have shown that six classical P-wave measurements do not capture the
+dependence, not that none does. The candidate we could not test is dispersion,
+and we can say precisely why: our noise floor on a zero-dispersion cohort is
+86\,ms, above the whole clinical range of the measurement. Reporting it as a null
+would have been reporting our own measurement error as a biological result.
+Adding the three usable atrial measures to the fifteen-feature set of
+Section~\ref{sec:dissolves} raises its attributable share from 14.5\% to 16.1\%,
+so that known-feature set is incomplete too. Both cohorts are single-country, neither has
+clinical outcome data, and our analysis covers adults 18--89 only. Occlusion
 establishes that the model needs the information, not that the information is
 biologically causal.
 
@@ -479,6 +521,71 @@ Both are recorded because they illustrate a general point: synthetic validation
 is necessary but not sufficient, and an attribution method that violates its own
 defining axiom can look entirely normal.
 
+\section{Segment attribution against the three nulls}
+\label{app:nulls}
+
+\begin{table}[h]
+\centering
+\caption{Share of total absolute attribution per segment, PTB-XL. The elevation
+of the P wave above every null is the finding; the gross ranking itself
+correlates with the amplitude null at $r = 0.929$, so only the departures carry
+information.}
+\small
+\begin{tabular}{lcccc}
+\toprule
+Segment & Trained & Amplitude & Untrained & Shuffled labels \\
+\midrule
+P wave & \textbf{0.119} & 0.086 & 0.081 & 0.056 \\
+QRS complex & 0.341 & 0.320 & 0.358 & 0.578 \\
+T wave & 0.178 & 0.225 & 0.213 & 0.110 \\
+Isoelectric & 0.362 & 0.369 & 0.348 & 0.256 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Validating the extended atrial measurements}
+\label{app:atrial}
+
+Adding measurements to the known-feature set can only shrink a discovery claim,
+so a measurement that is silently broken makes our own result look better than it
+is. Each new measure is therefore validated in both directions - against a signal
+whose answer is known, and against one whose answer is zero.
+
+\paragraph{P terminal force.} Checked against constructed biphasic P waves with a
+terminal negative run of known duration and depth; the index equals their product
+and orders recordings by depth as the Morris criterion requires. A P wave ending
+above baseline returns exactly zero, which is an observation rather than a
+missing value.
+
+\paragraph{P-wave area.} Its absolute value is not known a priori, because each
+lead scales the P component by its own coefficient. We instead check the
+invariances that would break if the integration window or the baseline were
+wrong: doubling P amplitude doubles the area, and widening the P wave by 40\%
+widens the area by 40\%. We also verify area is not a deterministic function of
+duration and amplitude, since a measure recoverable from two we already had
+would add nothing.
+
+\paragraph{P-wave notching.} The false-positive control is the important one. An
+unsmoothed P wave has many local maxima, so a naive peak count reports every
+recording as notched and would fabricate an explanation for the residual. Our
+detector returns exactly zero on smooth raised-cosine P waves and on ten noise
+realisations of them, detects constructed bifid waves, and reports a notch depth
+that grows monotonically as the two humps separate.
+
+\paragraph{P-wave dispersion, and why it is absent from Table~\ref{tab:atrial}.}
+The synthetic cohort's twelve leads are exact linear projections of three shared
+components, so all leads share one P onset and offset and true dispersion is
+identically zero. We assert that premise in the test suite rather than trusting
+it, since it is what the noise-floor argument rests on. Measured on that cohort
+under its normal interference levels, our per-lead delineation reports a median
+dispersion of 86\,ms where the truth is 0\,ms. The real-data median is 80\,ms.
+The measurement is therefore uninformative here: it returns approximately the
+same value whether or not any dispersion exists. Note that this is a statement
+about our pipeline, not about the clinical quantity - P-wave dispersion is
+measurable with delineation validated against annotated per-lead boundaries,
+which is exactly what this project's from-scratch, no-pretrained-components
+constraint excludes.
+
 \section{Inference procedure for the diagnostic link}
 \label{app:inference}
 
@@ -524,7 +631,7 @@ knowledge is.
 
 Both datasets are public and CC BY 4.0. The full pipeline runs end to end on
 procedurally generated data with no downloads required, and the test suite
-(350 tests) verifies every ground-truth claim above. Model parameters are
+(366 tests) verifies every ground-truth claim above. Model parameters are
 bit-for-bit determined by the random seed, which is also how the
 no-pretrained-weights claim is checked. Attribution runs on CPU by default for
 the reason in Appendix~\ref{app:failures}.
@@ -541,7 +648,7 @@ apparently significant association did not survive a change of data split or a
 fuller enumeration of existing knowledge.
 
 The risk our own positive result carries is that it be over-read. We report a
-model's causal dependence on atrial information not captured by three classical
+model's causal dependence on atrial information not captured by six classical
 P-wave measurements. This is a pointer for investigation, \textbf{not a clinical
 finding}: it establishes neither biological causation, nor clinical utility, nor
 that no existing measurement captures the signal, and it must not inform patient
