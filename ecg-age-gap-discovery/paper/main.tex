@@ -69,7 +69,8 @@ distinction is the entire question.
 
 We study this on the ECG age gap: the difference between a model's predicted age
 and a patient's chronological age, widely interpreted as a marker of
-cardiovascular ageing. Predicting age from an ECG is an established task
+cardiovascular ageing, and reported to predict mortality
+\citep{lima2021ecgage}. Predicting age from an ECG is an established task
 \citep{attia2019age} and we claim no novelty for it; the model exists so that its
 errors can be interrogated.
 
@@ -340,9 +341,9 @@ may degrade simply because its input became unfamiliar.
 \begin{table}[t]
 \centering
 \caption{Causal occlusion ($\Delta$ MAE against a width-matched isoelectric
-control) and external replication. Chapman-Shaoxing-Ningbo comprises 24{,}000
-recordings from three Chinese hospitals, sharing no data with PTB-XL. Every
-interval excludes zero.}
+control) and external replication. Chapman-Shaoxing-Ningbo
+\citep{zheng2020chapman} comprises 24{,}000 recordings from three Chinese
+hospitals, sharing no data with PTB-XL. Every interval excludes zero.}
 \label{tab:replication}
 \small
 \begin{tabular}{lcc@{\hspace{2em}}lcc}
