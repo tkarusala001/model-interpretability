@@ -166,6 +166,18 @@ class AccumulationCurve:
     #: Gain in mean attributable share across the last step of the sweep. The
     #: most direct read on whether enumeration has stopped paying.
     tail_gain: float
+    #: ``tail_gain`` divided by the width of that step in log-K, so it is in the
+    #: same units as ``log_slope`` and comparable between sweeps whose top step
+    #: spans a different number of features.
+    #:
+    #: This, not ``log_slope``, is what decides saturation. A curve that
+    #: saturates has a steep *global* slope almost by definition - it climbed to
+    #: get there - so testing the global slope would report "still rising" for
+    #: every genuinely saturated curve, which is the one case the diagnostic
+    #: exists to detect. Observed on a synthetic sweep that flattened to +0.3%
+    #: over its last step and was still called unfinished on a global slope of
+    #: +0.247.
+    tail_log_slope: float = float("nan")
     #: Asymptote of a saturating fit, or ``None`` if the fit did not converge
     #: or there were too few levels to attempt one. An extrapolation.
     extrapolated_ceiling: float | None = None
@@ -191,8 +203,16 @@ class AccumulationCurve:
         further percentage point of variance per e-fold" - deliberately strict,
         because the error asymmetry means a curve that merely *looks* flat is
         the failure this diagnostic exists to catch.
+
+        Judged on the *tail*, never on the global slope - see
+        ``tail_log_slope`` for why. Both the raw last step and its per-e-fold
+        rate must be small: the raw step alone would call a curve flat merely
+        because its top two sizes were close together, and the rate alone
+        exaggerates a narrow step at the top of the sweep.
         """
-        return self.log_slope <= tolerance and self.tail_gain <= tolerance
+        if not np.isfinite(self.tail_log_slope):
+            return False
+        return self.tail_log_slope <= tolerance and self.tail_gain <= tolerance
 
     def to_frame(self) -> pd.DataFrame:
         """One row per level, for the run directory and for plotting."""
@@ -258,8 +278,11 @@ class AccumulationCurve:
             "",
             f"All {len(self.available_features)} features: "
             f"{self.full_set_incremental:.1%} [{low:.1%}, {high:.1%}]",
-            f"Slope: {self.log_slope:+.3f} attributable share per e-fold increase in K",
-            f"Last step: {self.tail_gain:+.1%}",
+            f"Slope over the whole curve: {self.log_slope:+.3f} attributable "
+            "share per e-fold increase in K (descriptive only)",
+            f"Last step: {self.tail_gain:+.1%} "
+            f"({self.tail_log_slope:+.3f} per e-fold) - this is what decides "
+            "saturation",
         ]
         if self.extrapolated_ceiling is not None:
             fraction = self.saturation_fraction
@@ -362,6 +385,13 @@ def _fit_saturating_ceiling(
     """
     if sizes.size < 4:
         return None
+    # A saturating fit to a row of near-zeros has no content: the asymptote is
+    # determined by noise, and the reported "fraction of the ceiling reached"
+    # becomes a ratio of two numbers that are both nothing. Observed on a smoke
+    # run whose model was worse than the mean predictor, where every level came
+    # out at 0.0% and the fit still produced a confident-looking ceiling.
+    if float(means.max()) < 0.005:
+        return None
     try:
         from scipy.optimize import curve_fit
     except ImportError:
@@ -383,6 +413,14 @@ def _fit_saturating_ceiling(
         return None
     ceiling = float(params[0])
     if not np.isfinite(ceiling) or ceiling <= 0:
+        return None
+    # A fit that ran to its upper bound has not found an asymptote, it has run
+    # out of room: the hyperbola cannot describe a curve that stays flat near
+    # zero before climbing, so the optimiser pushes the ceiling as high as it
+    # is allowed. Seen on a synthetic sweep that plateaued at 61% and reported
+    # a ceiling of exactly 100%. Reporting that would tell a reader most of
+    # existing knowledge was still unenumerated, which the data do not say.
+    if ceiling >= 0.999:
         return None
     # An asymptote below what was already observed is the fit failing to
     # describe its own data, not a ceiling.
@@ -569,9 +607,12 @@ def sweep_known_features(
     if level_sizes.size >= 2:
         log_slope = float(np.polyfit(np.log(level_sizes), level_means, 1)[0])
         tail_gain = float(level_means[-1] - level_means[-2])
+        log_step = float(np.log(level_sizes[-1]) - np.log(level_sizes[-2]))
+        tail_log_slope = tail_gain / log_step if log_step > 0 else float("nan")
     else:
         log_slope = float("nan")
         tail_gain = float("nan")
+        tail_log_slope = float("nan")
 
     return AccumulationCurve(
         levels=tuple(levels),
@@ -584,5 +625,6 @@ def sweep_known_features(
         full_set_incremental_ci=incremental_ci,
         log_slope=log_slope,
         tail_gain=tail_gain,
+        tail_log_slope=tail_log_slope,
         extrapolated_ceiling=_fit_saturating_ceiling(level_sizes, level_means),
     )
