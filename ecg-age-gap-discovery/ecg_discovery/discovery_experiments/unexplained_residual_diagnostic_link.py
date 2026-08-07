@@ -76,6 +76,30 @@ can be statistically distinguishable from zero given enough data and remain
 clinically meaningless. Effect size is reported alongside the interval, and the
 verdict requires both.
 
+**Confusing "we did not detect an effect" with "there is no effect".** An
+interval containing zero is equally consistent with no effect and with an
+effect the cohort was too small to resolve, so it cannot support the sentence a
+negative result wants to write. Reporting that an effect "falls below" a
+relevance threshold is a claim about where the effect *is*, and it needs the
+interval to exclude that threshold, not merely to include zero.
+
+This module therefore runs an **equivalence test** alongside the superiority
+test. Equivalence at margin ``m`` is declared when the two-sided interval lies
+entirely inside ``(-m, +m)``, which is the two-one-sided-tests procedure: a
+TOST at level ``alpha`` is exactly the statement that the ``1 - 2*alpha``
+interval fits inside the margin. Three outcomes are then distinguishable rather
+than two - ``improves``, ``equivalent``, and ``inconclusive`` - and the third is
+reported as an absence of evidence rather than quietly written up as a
+negative.
+
+The equivalence test is **not** Bonferroni-corrected while the superiority test
+is. "Some superclass improved" is a union claim and needs correction; "every
+superclass is equivalent" is an intersection claim, valid at the same level by
+the intersection-union principle. Correcting it would widen the intervals and
+make equivalence *harder* to declare, which errs in the direction of
+understating how well the null was established rather than guarding against
+overstating it.
+
 **The residual being a proxy for age.** The residual comes from a model already
 adjusted for age and sex, and the baseline classifier contains those same
 covariates, so an improvement cannot come from the residual smuggling in
@@ -131,6 +155,17 @@ class SuperclassLink:
     improves:
         Whether the interval excludes zero *after* correcting for having tested
         several superclasses.
+    equivalence_ci:
+        Two-sided interval used for the equivalence test, read off the same
+        bootstrap replicates as ``delta_auc_ci`` but *without* the multiplicity
+        correction. See ``equivalent`` for why not.
+    equivalent:
+        Whether ``equivalence_ci`` lies entirely inside the equivalence margin,
+        which is the only way to support "this effect is too small to matter".
+        An interval that merely contains zero does not: it is equally
+        consistent with no effect and with an effect the study was too small to
+        resolve. That distinction is the difference between a negative result
+        and an absence of evidence.
     n_positive:
         Recordings carrying this superclass. Small counts make an AUC unstable,
         which is reported rather than hidden.
@@ -147,7 +182,24 @@ class SuperclassLink:
     delta_auc: float
     delta_auc_ci: tuple[float, float]
     improves: bool
+    equivalence_ci: tuple[float, float]
+    equivalent: bool
     fold_deltas: np.ndarray = field(repr=False, default_factory=lambda: np.empty(0))
+
+    @property
+    def tightest_supported_bound(self) -> float:
+        """The smallest margin at which equivalence would have been declared.
+
+        ``max(|low|, |high|)`` of the equivalence interval: the paper can say
+        "we rule out effects larger than this" for any margin above it, and
+        cannot for any margin below. Reporting it stops the equivalence verdict
+        from depending entirely on where the pre-registered threshold happened
+        to be set.
+        """
+        low, high = self.equivalence_ci
+        if not (np.isfinite(low) and np.isfinite(high)):
+            return float("nan")
+        return float(max(abs(low), abs(high)))
 
     @property
     def prevalence(self) -> float:
@@ -186,6 +238,40 @@ class DiagnosticLinkReport:
         return any(link.improves for link in self.links.values())
 
     @property
+    def all_equivalent(self) -> bool:
+        """Whether *every* tested superclass was shown equivalent to no effect.
+
+        This is the claim "the residual carries no clinically meaningful
+        information", and it is an **intersection** hypothesis: it requires all
+        of the component equivalences to hold, so by the intersection-union
+        principle testing each at level alpha gives the conjunction at level
+        alpha. No multiplicity correction is applied, and none is needed -
+        unlike ``any_improvement``, which is a union claim and is corrected.
+
+        Correcting here would not be conservative, it would be backwards:
+        widening the intervals makes equivalence harder to declare, so a
+        Bonferroni-corrected equivalence test would understate how well the
+        null was established rather than guarding against overstating it.
+        """
+        return bool(self.links) and all(
+            link.equivalent for link in self.links.values()
+        )
+
+    @property
+    def inconclusive(self) -> tuple[str, ...]:
+        """Superclasses that neither improved nor were shown equivalent.
+
+        The honest third outcome, and the one this module previously had no way
+        to express: the interval contains zero *and* extends past the margin,
+        so the data cannot distinguish no effect from an effect that would
+        matter. These are underpowered, not negative.
+        """
+        return tuple(
+            name for name, link in self.links.items()
+            if not link.improves and not link.equivalent
+        )
+
+    @property
     def best(self) -> SuperclassLink | None:
         """The largest improvement, whether or not it is distinguishable from zero."""
         return max(self.links.values(), key=lambda link: link.delta_auc, default=None)
@@ -202,9 +288,13 @@ class DiagnosticLinkReport:
                 "delta_auc": link.delta_auc,
                 "delta_ci_low": link.delta_auc_ci[0],
                 "delta_ci_high": link.delta_auc_ci[1],
+                "equivalence_ci_low": link.equivalence_ci[0],
+                "equivalence_ci_high": link.equivalence_ci[1],
+                "tightest_supported_bound": link.tightest_supported_bound,
                 "n_folds_positive": link.n_folds_positive,
                 "n_folds": link.n_folds,
                 "improves": link.improves,
+                "equivalent": link.equivalent,
             }
             for link in self.links.values()
         ])
@@ -221,7 +311,7 @@ class DiagnosticLinkReport:
             "verdict.",
             "",
             f"{'superclass':<12}{'n+':>7}{'baseline':>11}{'augmented':>11}"
-            f"{'delta':>9}{'95% CI':>18}{'folds+':>9}",
+            f"{'delta':>9}{'95% CI':>18}{'folds+':>9}{'verdict':>14}",
         ]
         for link in self.links.values():
             low, high = link.delta_auc_ci
@@ -229,12 +319,18 @@ class DiagnosticLinkReport:
                 f"[{low:+.3f}, {high:+.3f}]" if np.isfinite(low) and np.isfinite(high)
                 else "not estimable"
             )
+            if link.improves:
+                verdict = "improves"
+            elif link.equivalent:
+                verdict = "equivalent"
+            else:
+                verdict = "inconclusive"
             lines.append(
                 f"{link.superclass:<12}{link.n_positive:>7}{link.auc_baseline:>11.3f}"
                 f"{link.auc_augmented:>11.3f}{link.delta_auc:>+9.3f}"
                 f"{interval:>18}"
                 f"{f'{link.n_folds_positive}/{link.n_folds}':>9}"
-                + ("  *" if link.improves else "")
+                f"{verdict:>14}"
             )
         for name, reason in self.skipped.items():
             lines.append(f"{name:<12}  skipped: {reason}")
@@ -273,16 +369,68 @@ class DiagnosticLinkReport:
             lines += [
                 "RESULT: no superclass is better predicted when the unexplained "
                 "residual is added;" + detail,
+            ]
+
+        # The equivalence verdict is reported whichever way the superiority test
+        # went, because "not distinguishable from zero" and "shown to be too
+        # small to matter" are different claims and only the second supports a
+        # negative conclusion.
+        margin = self.minimum_meaningful_delta
+        lines += ["", self._equivalence_paragraph(margin)]
+
+        if not self.any_improvement:
+            if self.all_equivalent:
+                lines += [
+                    "",
+                    "This is a genuine negative result, not a failed experiment. "
+                    "The model's age gap contains variance that classical "
+                    "intervals do not explain, and that variance is shown not to "
+                    "correspond to anything the cardiologist labels can verify.",
+                ]
+            lines += [
                 "",
-                "This is a genuine negative result, not a failed experiment. The "
-                "model's age gap contains variance that classical intervals do not "
-                "explain, and that variance does not correspond to anything the "
-                "cardiologist labels can verify. Read together with the "
-                "attribution figures, it is a caution: attribution showing a model "
-                "attending to a structure, plus an unexplained residual, is NOT "
-                "evidence of a discovered biomarker.",
+                "Read together with the attribution figures, this is a caution: "
+                "attribution showing a model attending to a structure, plus an "
+                "unexplained residual, is NOT evidence of a discovered biomarker.",
             ]
         return "\n".join(lines)
+
+    def _equivalence_paragraph(self, margin: float) -> str:
+        """State what the equivalence test does and does not license."""
+        estimable = [
+            link for link in self.links.values()
+            if np.isfinite(link.tightest_supported_bound)
+        ]
+        if not estimable:
+            return (
+                f"EQUIVALENCE ({margin:.3f} AUC margin): not estimable for any "
+                "superclass, so no claim of 'no meaningful effect' is supported."
+            )
+        worst = max(estimable, key=lambda link: link.tightest_supported_bound)
+        if self.all_equivalent:
+            return (
+                f"EQUIVALENCE ({margin:.3f} AUC margin): every tested superclass "
+                f"is statistically equivalent to no effect - each interval lies "
+                f"entirely within the margin, the widest reaching only "
+                f"{worst.tightest_supported_bound:.3f} ({worst.superclass}). This "
+                "supports the positive claim that the residual carries no "
+                "clinically meaningful information, which an interval merely "
+                "containing zero would not. No multiplicity correction is applied: "
+                "the claim is a conjunction over superclasses, valid at the same "
+                "level by the intersection-union principle."
+            )
+        undecided = self.inconclusive
+        return (
+            f"EQUIVALENCE ({margin:.3f} AUC margin): NOT established for "
+            f"{', '.join(undecided)}. The interval for {worst.superclass} extends "
+            f"to {worst.tightest_supported_bound:.3f}, past the margin, so the data "
+            "cannot separate 'no effect' from 'an effect large enough to matter'. "
+            "This is an absence of evidence, not evidence of absence, and the "
+            "write-up must say so: reporting these effects as falling below the "
+            "threshold would claim more than the intervals support. The tightest "
+            "bound the cohort does support is "
+            f"{worst.tightest_supported_bound:.3f} AUC."
+        )
 
 
 def _build_classifier(config: ValidationFrameworkConfig) -> Pipeline:
@@ -309,9 +457,14 @@ def _paired_bootstrap_delta_auc(
     augmented_probability: np.ndarray,
     groups: np.ndarray | None,
     config: ValidationFrameworkConfig,
-    tail: float,
-) -> tuple[float, float]:
-    """Percentile interval for the difference between two paired AUCs.
+) -> np.ndarray:
+    """Bootstrap replicates of the difference between two paired AUCs.
+
+    Returns the replicates rather than an interval, because two different
+    intervals are read off them: a multiplicity-corrected one for the
+    superiority verdict and an uncorrected one for the equivalence verdict.
+    Running the bootstrap twice would make the two verdicts disagree about the
+    same resamples for no reason.
 
     The out-of-fold predictions are treated as fixed and the *cohort* is
     resampled, which is what makes this an interval for the quantity actually
@@ -328,17 +481,11 @@ def _paired_bootstrap_delta_auc(
     that situation produces an interval that is too narrow, which is the
     direction that manufactures a discovery.
 
-    Parameters
-    ----------
-    tail:
-        One-sided tail probability, already divided by the number of
-        superclasses tested.
-
     Returns
     -------
-    tuple[float, float]
-        Lower and upper interval bounds. ``(nan, nan)`` if too few resamples
-        contained both classes for a percentile to mean anything.
+    numpy.ndarray
+        One delta per bootstrap iteration, with ``nan`` for resamples that
+        contained only one class.
     """
     rng = np.random.default_rng(config.seed)
 
@@ -375,7 +522,18 @@ def _paired_bootstrap_delta_auc(
             - roc_auc_score(resampled_target, baseline_probability[rows])
         )
 
-    if np.count_nonzero(np.isfinite(scores)) < 0.5 * config.bootstrap_iterations:
+    return scores
+
+
+def _percentile_interval(scores: np.ndarray, tail: float) -> tuple[float, float]:
+    """Two-sided percentile interval, or ``(nan, nan)`` if it would be meaningless.
+
+    An interval is refused when fewer than half the resamples produced a usable
+    statistic. A percentile of mostly-missing replicates would be reported in
+    the same format as a real interval and read as one.
+    """
+    usable = np.count_nonzero(np.isfinite(scores))
+    if usable < 0.5 * scores.size:
         return (float("nan"), float("nan"))
     return (
         float(np.nanpercentile(scores, 100 * tail)),
@@ -412,8 +570,10 @@ def evaluate_diagnostic_link(
     patient_ids:
         Groups cross-validation folds by patient when supplied.
     minimum_meaningful_delta:
-        AUC gain considered clinically meaningful, fixed in advance. Used only
-        for reporting, never to decide significance.
+        Smallest AUC gain considered clinically meaningful, fixed in advance.
+        It plays no part in the superiority verdict, which remains a test
+        against zero. It is the margin of the *equivalence* test, which is what
+        licenses the separate claim that an effect is too small to matter.
 
     Returns
     -------
@@ -478,6 +638,10 @@ def evaluate_diagnostic_link(
     ]
     n_tests = max(len(testable), 1)
     tail = (1.0 - config.confidence_level) / n_tests / 2.0
+    # Equivalence uses the uncorrected two-sided tail. A TOST at level alpha is
+    # exactly the statement that the (1 - 2*alpha) interval lies inside the
+    # margin, so a 95% interval implements a conservative alpha = 0.025 test.
+    equivalence_tail = (1.0 - config.confidence_level) / 2.0
 
     links: dict[str, SuperclassLink] = {}
     skipped: dict[str, str] = {}
@@ -540,13 +704,23 @@ def evaluate_diagnostic_link(
 
         auc_baseline = float(roc_auc_score(covered_target, out_of_fold[0]))
         auc_augmented = float(roc_auc_score(covered_target, out_of_fold[1]))
-        low, high = _paired_bootstrap_delta_auc(
+        scores = _paired_bootstrap_delta_auc(
             covered_target,
             out_of_fold[0],
             out_of_fold[1],
             None if groups is None else groups[covered],
             config,
-            tail,
+        )
+        low, high = _percentile_interval(scores, tail)
+        # Uncorrected, for the reason given in DiagnosticLinkReport.all_equivalent.
+        equivalence_low, equivalence_high = _percentile_interval(
+            scores, equivalence_tail
+        )
+        equivalent = bool(
+            np.isfinite(equivalence_low)
+            and np.isfinite(equivalence_high)
+            and equivalence_low > -minimum_meaningful_delta
+            and equivalence_high < minimum_meaningful_delta
         )
         links[name] = SuperclassLink(
             superclass=name,
@@ -559,6 +733,8 @@ def evaluate_diagnostic_link(
             # NaN bounds mean the interval could not be estimated, which must
             # never read as an improvement.
             improves=bool(np.isfinite(low) and low > 0.0),
+            equivalence_ci=(equivalence_low, equivalence_high),
+            equivalent=equivalent,
             fold_deltas=np.asarray(deltas),
         )
 

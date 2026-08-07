@@ -176,6 +176,7 @@ def main(argv: list[str] | None = None) -> int:
                     "r2_incremental": explainer.r2_incremental,
                     "unexplained_fraction": explainer.unexplained_fraction,
                     "r2_full_ci": list(explainer.r2_full_ci),
+                    "r2_incremental_ci": list(explainer.r2_incremental_ci),
                     "feature_effects": explainer.feature_effects,
                     "univariate_r2": explainer.univariate_r2,
                 }

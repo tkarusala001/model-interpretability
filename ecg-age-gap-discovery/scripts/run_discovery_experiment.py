@@ -230,6 +230,7 @@ def main(argv: list[str] | None = None) -> int:
                 name: {
                     "r2_baseline": e.r2_baseline, "r2_full": e.r2_full,
                     "r2_incremental": e.r2_incremental,
+                    "r2_incremental_ci": list(e.r2_incremental_ci),
                     "unexplained_fraction": e.unexplained_fraction,
                     "univariate_r2": e.univariate_r2,
                 }

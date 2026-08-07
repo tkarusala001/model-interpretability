@@ -108,6 +108,7 @@ from ecg_discovery.config import ValidationFrameworkConfig
 __all__ = [
     "ExplainerResult",
     "DecompositionResult",
+    "assemble_covariates",
     "decompose_age_gap",
 ]
 
@@ -139,6 +140,12 @@ class ExplainerResult:
         ``r2_full - r2_baseline`` - the share of the age gap the known
         intervals explain *beyond* what demographics already account for. This
         is the headline "rediscovery" number.
+    r2_incremental_ci:
+        Paired bootstrap interval for ``r2_incremental``, clustered by patient
+        where identifiers are supplied. This is the interval that belongs on
+        the headline number: an attributable share quoted as a bare point
+        estimate invites comparison between feature sets whose difference may
+        be entirely sampling noise.
     unexplained_fraction:
         ``1 - r2_full``. The share left over, and the ceiling on any discovery
         claim.
@@ -161,6 +168,7 @@ class ExplainerResult:
     r2_incremental: float
     unexplained_fraction: float
     r2_full_ci: tuple[float, float]
+    r2_incremental_ci: tuple[float, float]
     unexplained_residual: np.ndarray = field(repr=False)
     feature_effects: dict[str, float] = field(default_factory=dict)
     univariate_r2: dict[str, float] = field(default_factory=dict)
@@ -199,17 +207,21 @@ class DecompositionResult:
             f"Adjusted for: {', '.join(self.covariates) or 'nothing'}",
             "",
             f"{'explainer':<20}{'demographics':>14}{'+ intervals':>14}"
-            f"{'attributable':>14}{'unexplained':>14}",
+            f"{'attributable':>14}{'unexplained':>14}{'attributable 95% CI':>22}",
         ]
         for name, result in self.explainers.items():
+            low, high = result.r2_incremental_ci
             lines.append(
                 f"{name:<20}{result.r2_baseline:>13.1%} {result.r2_full:>13.1%} "
                 f"{result.r2_incremental:>13.1%} {result.unexplained_fraction:>13.1%}"
+                f"{f'[{low:.1%}, {high:.1%}]':>22}"
             )
         best = self.most_explanatory
+        low, high = best.r2_incremental_ci
         lines += [
             "",
-            f"Headline: known ECG intervals explain {best.r2_incremental:.1%} of the "
+            f"Headline: known ECG intervals explain {best.r2_incremental:.1%} "
+            f"[{low:.1%}, {high:.1%}] of the "
             f"age-gap residual beyond demographics; {best.unexplained_fraction:.1%} "
             f"is unexplained ({best.model_name}, out-of-fold).",
             "The unexplained share is a CANDIDATE for new signal, not evidence of it. "
@@ -242,6 +254,8 @@ class DecompositionResult:
                 "unexplained_fraction": result.unexplained_fraction,
                 "r2_full_ci_low": result.r2_full_ci[0],
                 "r2_full_ci_high": result.r2_full_ci[1],
+                "r2_incremental_ci_low": result.r2_incremental_ci[0],
+                "r2_incremental_ci_high": result.r2_incremental_ci[1],
             }
             for name, result in self.explainers.items()
         ])
@@ -315,23 +329,104 @@ def _out_of_fold_predictions(
     return predictions
 
 
-def _bootstrap_ci(
-    true: np.ndarray,
-    predicted: np.ndarray,
+def _cluster_indices(groups: np.ndarray | None) -> list[np.ndarray] | None:
+    """Row indices grouped by patient, for a cluster bootstrap.
+
+    Left as ``None`` in the unclustered case rather than filled with a single
+    all-rows "cluster", which would look like a valid cluster list while
+    standing for a bootstrap that resamples nothing.
+    """
+    if groups is None:
+        return None
+    unique_groups, inverse = np.unique(groups, return_inverse=True)
+    order = np.argsort(inverse, kind="stable")
+    boundaries = np.searchsorted(inverse[order], np.arange(unique_groups.size + 1))
+    return [order[boundaries[i] : boundaries[i + 1]] for i in range(unique_groups.size)]
+
+
+def _paired_bootstrap_r2(
+    target: np.ndarray,
+    baseline_prediction: np.ndarray,
+    full_prediction: np.ndarray,
+    groups: np.ndarray | None,
     config: ValidationFrameworkConfig,
-) -> tuple[float, float]:
-    """Percentile bootstrap interval for an out-of-fold R-squared."""
+) -> tuple[tuple[float, float], tuple[float, float]]:
+    """Intervals for the full R-squared and for the incremental share.
+
+    Both are read off the *same* resamples, which is what keeps the incremental
+    interval paired: baseline and full R-squared share a large component of
+    their sampling variance, and differencing two independently bootstrapped
+    intervals would be far wider than the truth. Here the shared component
+    cancels, as it does in the quantity being estimated.
+
+    The out-of-fold predictions are treated as fixed and the *cohort* is
+    resampled, so the interval answers the question actually asked of it: how
+    much would this figure move on another sample of patients from the same
+    population.
+
+    Resampling is by patient when identifiers are supplied. Two recordings from
+    one patient are not two independent observations, and resampling rows in
+    that situation yields an interval that is too narrow - the direction that
+    makes a feature set look more decisively informative than the data support.
+
+    The zero floor applied to the baseline point estimate is applied inside each
+    resample too, so the interval is an interval for the statistic that is
+    actually reported rather than for a slightly different one.
+    """
     rng = np.random.default_rng(config.seed)
-    n = len(true)
-    scores = np.empty(config.bootstrap_iterations)
-    for i in range(config.bootstrap_iterations):
-        sample = rng.integers(0, n, n)
-        scores[i] = _r2(true[sample], predicted[sample])
+    clusters = _cluster_indices(groups)
+    n = target.size
+
+    full_scores = np.empty(config.bootstrap_iterations, dtype=np.float64)
+    incremental_scores = np.empty(config.bootstrap_iterations, dtype=np.float64)
+    for iteration in range(config.bootstrap_iterations):
+        if clusters is None:
+            rows = rng.integers(0, n, n)
+        else:
+            drawn = rng.integers(0, len(clusters), len(clusters))
+            rows = np.concatenate([clusters[unit] for unit in drawn])
+        resampled_target = target[rows]
+        full = _r2(resampled_target, full_prediction[rows])
+        baseline = max(_r2(resampled_target, baseline_prediction[rows]), 0.0)
+        full_scores[iteration] = full
+        incremental_scores[iteration] = full - baseline
+
     tail = (1.0 - config.confidence_level) / 2.0
-    return (
-        float(np.nanpercentile(scores, 100 * tail)),
-        float(np.nanpercentile(scores, 100 * (1.0 - tail))),
+
+    def interval(scores: np.ndarray) -> tuple[float, float]:
+        return (
+            float(np.nanpercentile(scores, 100 * tail)),
+            float(np.nanpercentile(scores, 100 * (1.0 - tail))),
+        )
+
+    return interval(full_scores), interval(incremental_scores)
+
+
+def assemble_covariates(
+    config: ValidationFrameworkConfig,
+    n_recordings: int,
+    ages: np.ndarray | None,
+    sexes: np.ndarray | None,
+) -> tuple[np.ndarray, list[str]]:
+    """The demographic design matrix, and the names of the columns in it.
+
+    Shared with ``knowledge_accumulation`` so that a sweep over known-feature
+    subsets adjusts for exactly what a single decomposition adjusts for. A
+    curve built against a different baseline than the headline figure would not
+    be a curve through that figure.
+    """
+    columns: list[np.ndarray] = []
+    names: list[str] = []
+    if "age" in config.adjust_for_covariates and ages is not None:
+        columns.append(np.asarray(ages, dtype=np.float64))
+        names.append("age")
+    if "sex" in config.adjust_for_covariates and sexes is not None:
+        columns.append(np.asarray(sexes, dtype=np.float64))
+        names.append("sex")
+    covariates = (
+        np.column_stack(columns) if columns else np.zeros((n_recordings, 0))
     )
+    return covariates, names
 
 
 def decompose_age_gap(
@@ -341,6 +436,7 @@ def decompose_age_gap(
     ages: np.ndarray | None = None,
     sexes: np.ndarray | None = None,
     patient_ids: np.ndarray | None = None,
+    compute_univariate: bool = True,
 ) -> DecompositionResult:
     """Decompose an age-gap residual into explained and unexplained parts.
 
@@ -359,7 +455,13 @@ def decompose_age_gap(
         is mechanically correlated with age, and leaving that in would credit
         the intervals with variance that is a regression artefact.
     patient_ids:
-        Used to group cross-validation folds by patient.
+        Used to group cross-validation folds by patient, and to cluster the
+        bootstrap.
+    compute_univariate:
+        Fit each known feature on its own as well. Informative for a single
+        decomposition, but it costs one extra cross-validation per feature per
+        explainer, so ``knowledge_accumulation`` turns it off when sweeping
+        dozens of feature subsets whose individual breakdowns are not used.
 
     Returns
     -------
@@ -391,17 +493,8 @@ def decompose_age_gap(
 
     known = features[list(config.known_features)].to_numpy(dtype=np.float64)
 
-    covariate_columns: list[np.ndarray] = []
-    covariate_names: list[str] = []
-    if "age" in config.adjust_for_covariates and ages is not None:
-        covariate_columns.append(np.asarray(ages, dtype=np.float64))
-        covariate_names.append("age")
-    if "sex" in config.adjust_for_covariates and sexes is not None:
-        covariate_columns.append(np.asarray(sexes, dtype=np.float64))
-        covariate_names.append("sex")
-    covariates = (
-        np.column_stack(covariate_columns) if covariate_columns
-        else np.zeros((age_gap.size, 0))
+    covariates, covariate_names = assemble_covariates(
+        config, age_gap.size, ages, sexes
     )
 
     usable = np.isfinite(known).all(axis=1) & np.isfinite(age_gap)
@@ -457,18 +550,25 @@ def decompose_age_gap(
         }
 
         univariate: dict[str, float] = {}
-        for index, feature in enumerate(config.known_features):
-            single = np.column_stack([covariates, known[:, index : index + 1]])
-            prediction = _out_of_fold_predictions(single, target, name, config, groups)
-            univariate[feature] = _r2(target, prediction) - r2_baseline
+        if compute_univariate:
+            for index, feature in enumerate(config.known_features):
+                single = np.column_stack([covariates, known[:, index : index + 1]])
+                prediction = _out_of_fold_predictions(
+                    single, target, name, config, groups
+                )
+                univariate[feature] = _r2(target, prediction) - r2_baseline
 
+        full_ci, incremental_ci = _paired_bootstrap_r2(
+            target, baseline_prediction, full_prediction, groups, config
+        )
         explainers[name] = ExplainerResult(
             model_name=name,
             r2_baseline=r2_baseline,
             r2_full=r2_full,
             r2_incremental=r2_full - r2_baseline,
             unexplained_fraction=1.0 - r2_full,
-            r2_full_ci=_bootstrap_ci(target, full_prediction, config),
+            r2_full_ci=full_ci,
+            r2_incremental_ci=incremental_ci,
             unexplained_residual=target - full_prediction,
             feature_effects=feature_effects,
             univariate_r2=univariate,

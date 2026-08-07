@@ -132,9 +132,12 @@ def main(argv=None) -> int:
             "n_known_features": n_features,
             "n_recordings": report.n_recordings,
             "attributable": best.r2_incremental,
+            "attributable_ci": list(best.r2_incremental_ci),
             "unexplained": best.unexplained_fraction,
             "links": report.to_frame().to_dict(orient="records"),
             "any_improvement": report.any_improvement,
+            "all_equivalent": report.all_equivalent,
+            "inconclusive": list(report.inconclusive),
             "summary": report.summary_text(),
         })
 
