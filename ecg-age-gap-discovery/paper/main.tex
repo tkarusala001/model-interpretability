@@ -271,11 +271,22 @@ significant association. We fixed a clinical-relevance threshold of 0.020 AUC
 before examining any data; every effect in the table falls below it even where
 significant.
 
-Two conclusions follow. For this model and dataset, the age gap carries no
-clinically meaningful information beyond classical measurement. More generally,
-\textbf{the apparent size of a discovery is a function of how thoroughly prior
-knowledge was enumerated} --- a property of the analysis rather than the biology,
-and invisible unless the known-feature set is deliberately varied.
+Two conclusions follow, and the first needs stating narrowly. For this model
+and dataset, the age-gap residual adds nothing to the prediction of
+\emph{cardiologist-assigned superclasses read from the same recording}, once
+classical measurement is enumerated. That is a weaker statement than it may
+appear, and deliberately so: those labels are assigned from the same trace the
+measurements are taken from, so they are close to a function of the classical
+features, and the incremental test is correspondingly hard to pass. The claims
+this literature actually makes concern mortality and incident events
+\citep{lima2021ecgage,attia2019age}, which neither cohort here records and
+which we therefore do not test. What we show is that a positive result on this
+outcome dissolved; we do not show the age gap is uninformative about outcomes
+nobody measured. More generally, \textbf{the apparent size of a discovery is a
+function of how thoroughly prior knowledge was enumerated} --- a property of the
+analysis rather than the biology, and invisible unless the known-feature set is
+deliberately varied. That conclusion does not depend on which outcome is
+tested.
 
 \paragraph{The same trap for subgroups.} Split by sex, the unexplained share is
 4.9\,pp higher for women (70.0\% against 65.0\%, 6/6 explainer seeds) --- the
