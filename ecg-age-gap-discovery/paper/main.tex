@@ -10,6 +10,7 @@
 \usepackage{url}
 \usepackage{booktabs}
 \usepackage{amsmath}
+\usepackage{amssymb}
 \usepackage{graphicx}
 \usepackage{xcolor}
 
@@ -113,10 +114,20 @@ in the residual, looking like a discovery.
 \label{sec:protocol}
 
 Regress the candidate signal against everything already measurable and keep only
-the remainder. With $R^2_{\text{base}}$ from demographics alone and
-$R^2_{\text{full}}$ from demographics plus known measurements,
-$\text{attributable} = R^2_{\text{full}} - R^2_{\text{base}}$ and
-$\text{unexplained} = 1 - R^2_{\text{full}}$. Only the unexplained part is
+the remainder. Let $a$ be chronological age, $x$ a 12-lead ECG, $f$ the trained
+regressor, and $g = f(x) - a$ the \emph{age gap}. Let $d$ denote the demographic
+covariates and $\mathcal{F} = \{K_1,\dots,K_p\}$ the enumerated known
+measurements. Writing $R^2(Z)$ for the population share of
+$\operatorname{Var}(g)$ explained by a covariate set $Z$, the two reported
+quantities are, for any $S \subseteq \mathcal{F}$,
+\[
+\underbrace{\Delta(S) = R^2(d \cup S) - R^2(d)}_{\text{attributable to known}},
+\qquad
+\underbrace{U(S) = 1 - R^2(d \cup S)}_{\text{unexplained}} ,
+\]
+both estimated out of fold and grouped by patient. Measurements carry error, so
+what is actually available is $\hat{\mathcal{F}}$ rather than $\mathcal{F}$.
+Only the unexplained part is
 eligible to be called a discovery candidate, and even then it means ``we have not
 shown this is already known'', far weaker than ``this is new''. Four components
 each prevent a specific failure.
@@ -146,12 +157,58 @@ measurement can be regressed out --- or is what a clinician has. We demonstrate
 this on constructed data where a morphology change leaves true QT exactly
 unchanged yet moves measured QT (Appendix~\ref{app:synthetic}).
 
-\paragraph{The error asymmetry.} Every weakness here pushes one way. Noisy
-measurement, a thin known-feature set, too rigid an explainer, and an overfitted
-model all \emph{shrink} the attributable share and \emph{inflate} the unexplained
-residual; no mechanism produces the reverse. ``Fully explained'' is therefore
-strong evidence while ``largely unexplained'' is weak evidence --- and much
-published inference treats the latter as the stronger signal.
+\subsection{The error asymmetry, stated exactly}
+\label{sec:asymmetry}
+
+Every weakness here pushes one way, and the direction can be read off three
+inequalities rather than argued informally. Let
+$\mathcal{K}^\star \supseteq \mathcal{F}$ denote \emph{all} quantities already
+known to cardiology, measured without error. Decompose the gap into a component
+reproducible across training runs and estimation noise, $g = s + \varepsilon$
+with $s(x) = \mathbb{E}_{\text{seed}}[f_{\text{seed}}(x)] - a$ and
+$\operatorname{Cov}(s,\varepsilon) = 0$, and write
+$\nu = \operatorname{Var}(\varepsilon)/\operatorname{Var}(g)$. What a discovery
+claim is about is the share of gap variance that is both reproducible and
+unexplainable by existing knowledge, $\mathcal{N} = U(\mathcal{K}^\star) - \nu$.
+
+\textbf{(i) Model noise sets a floor.} No measurement of $x$ predicts seed
+noise, so $U(S) \ge \nu$ for every $S$. The floor concerns the ensemble over
+training runs, which is the object a replication claim is about; with two
+independently seeded models
+$\hat\nu = 1 - \operatorname{Corr}(g^{(1)}, g^{(2)})$.
+
+\textbf{(ii) Measurement error attenuates.} With classical error
+$\hat{S} = S + \eta$, $\eta \perp (S,g)$, the noisy measurement is conditionally
+independent of the gap given the true one, so $U(\hat{S}) \ge U(S)$. For a
+single regressor this is exact: a measurement correlating with truth at $r$
+recovers only $r^2$ of the variance it genuinely explains, which is why we
+measure intervals at 500\,Hz (\S\ref{sec:setup}).
+
+\textbf{(iii) Enumeration is incomplete.} Conditioning on more cannot increase
+the error of the conditional mean, so $S \subseteq S'$ implies $U(S) \ge U(S')$,
+and in particular $U(\mathcal{F}) \ge U(\mathcal{K}^\star)$.
+
+Chaining (iii) then (ii) gives the paper's title as an inequality,
+\[
+\boxed{\;\mathcal{N} \;\le\; U(\hat{\mathcal{F}}) - \nu\;}
+\qquad\text{with slack}\qquad
+\underbrace{\left[U(\hat{\mathcal{F}}) - U(\mathcal{F})\right]}_{\text{attenuation}\;\ge\;0}
++
+\underbrace{\left[U(\mathcal{F}) - U(\mathcal{K}^\star)\right]}_{\text{enumeration}\;\ge\;0} .
+\]
+Both slack terms are non-negative, so a reported unexplained share overstates
+novelty and never understates it. Noisy measurement, a thin known-feature set,
+too rigid an explainer, and an overfitted model all \emph{shrink} the
+attributable share and \emph{inflate} the unexplained residual; no mechanism
+produces the reverse. ``Fully explained'' is therefore strong evidence while
+``largely unexplained'' is weak evidence --- and much published inference treats
+the latter as the stronger signal.
+
+\paragraph{The estimator does not inherit the inequality.} Monotonicity in
+(iii) is a population property. Out-of-fold $\hat{R}^2$ can \emph{fall} when a
+feature is added, and an overfitting baseline can score $\hat{R}^2(d) < 0$;
+subtracting a negative number would inflate $\hat\Delta$. We therefore report
+$\hat\Delta(S) = \hat{R}^2(d \cup S) - \max(\hat{R}^2(d),\, 0)$.
 
 \section{Result 1: the discovery dissolves}
 \label{sec:dissolves}
@@ -239,6 +296,32 @@ density-based attribution still pointed at the QRS, and only an amplitude null
 exposed it. We therefore compare every profile against three nulls --- per-segment
 signal energy, an untrained model, and a model trained on permuted labels
 (Appendix~\ref{app:nulls}).
+
+Concretely, let $\phi_{\ell t}$ be the Integrated Gradients attribution for lead
+$\ell$ at sample $t$, satisfying the completeness axiom
+$\sum_{\ell,t}\phi_{\ell t} = f(x) - f(x_0)$, which we verify numerically on
+every run. For a segment $c$ with sample set $\mathcal{T}_c$ and width
+$w_c = |\mathcal{T}_c|$,
+\[
+\sigma_c = \frac{\sum_{\ell}\sum_{t \in \mathcal{T}_c} |\phi_{\ell t}|}
+                {\sum_{\ell}\sum_{t} |\phi_{\ell t}|},
+\qquad
+\bar{\sigma}_c = \frac{\sigma_c}{w_c},
+\qquad
+\alpha_c = \frac{\sum_{\ell}\sum_{t \in \mathcal{T}_c} x_{\ell t}^2}
+                {\sum_{\ell}\sum_{t} x_{\ell t}^2} .
+\]
+Because $\sigma_c$ sums over $w_c$ samples, rankings by $\sigma$ are confounded
+by segment duration while rankings by the density $\bar\sigma$ are not, so we
+report both. \textbf{The claimed effect is the elevation above the amplitude
+null, $e_c = \sigma_c - \alpha_c$, not $\sigma_c$ itself} --- the gross ranking
+correlates with the null at $r = 0.929$, so only the departures are the finding.
+Writing $x^{(c)}$ for $x$ with segment $c$ replaced by its per-lead isoelectric
+baseline and $x^{(\bar{c})}$ for $w_c$ samples blanked from electrically silent
+stretches, the causal occlusion contrast is
+$\Omega_c = \mathrm{MAE}(f(x^{(c)})) - \mathrm{MAE}(f(x^{(\bar{c})}))$, so a
+segment is not credited merely for being wide, nor an occlusion for perturbing
+the input.
 
 The model places more attribution on the \textbf{P wave} --- atrial
 depolarisation --- than any null predicts: $+0.041$ above the amplitude null
@@ -366,7 +449,7 @@ We have shown that six classical P-wave measurements do not capture the
 dependence, not that none does. Reporting dispersion as a null would have been
 reporting our own measurement error as a biological result. Adding the three
 usable atrial measures to the fifteen-feature set of Section~\ref{sec:dissolves}
-raises its attributable share from 14.5\% to 16.1\%, so that set is incomplete
+raises its attributable share to 16.1\%, so that set is incomplete
 too. Both cohorts are single-country, neither has clinical outcome data, the
 analysis covers adults 18--89 only, and occlusion establishes that the model
 needs the information, not that it is biologically causal.
