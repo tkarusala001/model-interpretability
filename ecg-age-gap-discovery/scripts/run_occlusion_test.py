@@ -211,6 +211,17 @@ def main(argv=None) -> int:
                 # isoelectric control, per recording.
                 paired = error_segment - error_control
                 stderr = paired.std(ddof=1) / np.sqrt(paired.size)
+                # Signed shift in predicted age, against the width-matched
+                # control. MAE is unsigned and so cannot distinguish two very
+                # different dependencies: a model that reads P-wave *morphology*
+                # degrades in both directions, while a model using P-wave
+                # *presence* as an atrial-fibrillation flag should push
+                # predictions systematically OLDER when the P wave is removed,
+                # because AF prevalence rises steeply with age. The second is
+                # rediscovery of classical knowledge, not a novel dependence,
+                # and only the sign separates them.
+                signed = predicted - predicted_control
+                signed_stderr = signed.std(ddof=1) / np.sqrt(signed.size)
                 rows.append({
                     "seed": seed,
                     "segment": segment,
@@ -225,12 +236,22 @@ def main(argv=None) -> int:
                     "delta_per_100_samples": float(
                         paired.mean() / mean_samples * 100 if mean_samples else np.nan
                     ),
+                    "signed_shift_vs_control": float(signed.mean()),
+                    "signed_ci_low": float(signed.mean() - 1.96 * signed_stderr),
+                    "signed_ci_high": float(signed.mean() + 1.96 * signed_stderr),
+                    "fraction_shifted_older": float(np.mean(signed > 0)),
                 })
                 print(f"    {segment:<4} MAE {error_segment.mean():6.3f} vs control "
                       f"{error_control.mean():6.3f} | delta {paired.mean():+6.3f} "
                       f"[{rows[-1]['ci_low']:+.3f}, {rows[-1]['ci_high']:+.3f}] | "
                       f"{mean_samples:5.0f} samples | per-100 "
                       f"{rows[-1]['delta_per_100_samples']:+.3f}")
+                print(f"         signed shift {signed.mean():+6.3f} y "
+                      f"[{rows[-1]['signed_ci_low']:+.3f}, "
+                      f"{rows[-1]['signed_ci_high']:+.3f}] | "
+                      f"{rows[-1]['fraction_shifted_older']:.0%} predicted older"
+                      + ("   <-- directional: consistent with a rhythm flag"
+                         if rows[-1]['signed_ci_low'] > 0 else ""))
 
         frame = pd.DataFrame(rows)
         print()
