@@ -256,7 +256,3 @@ pytest
 - [reproducibility.md](docs/reproducibility.md) — exact commands, seeds,
   runtimes, expected numbers
 
-## License
-
-Apache-2.0. See [LICENSE](LICENSE). PTB-XL itself is CC BY 4.0 and is not
-redistributed here.
